@@ -1,19 +1,11 @@
 name: Branch Review
 
-# Manual, full-branch review (general quality + security). Run it from the
-# Actions tab (or: gh workflow run branch-review.yml -f ref=<branch>).
+# Manual full-branch review (general quality + security).
+# Pick the branch to review in the "Use workflow from" dropdown — that branch
+# is what gets reviewed (vs the repo's default branch). Just choose a branch + model.
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: 'Branch to review'
-        required: true
-        type: string
-      base:
-        description: 'Base to diff against (blank = default branch)'
-        required: false
-        type: string
-        default: ''
       model:
         description: 'Claude model id'
         required: false
@@ -28,7 +20,7 @@ jobs:
     uses: dsngeu/code-review-agents/.github/workflows/branch-review.yml@main
     with:
       repo: ${{ github.repository }}
-      ref: ${{ inputs.ref }}
-      base: ${{ inputs.base }}
+      ref: ${{ github.ref_name }}   # the branch picked in "Use workflow from"
+      base: ''                       # diff against the repo default branch
       model: ${{ inputs.model }}
     secrets: inherit
