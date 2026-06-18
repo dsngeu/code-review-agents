@@ -20,6 +20,24 @@ function resolveModel(agentDefault) {
   return process.env.MODEL || agentDefault || DEFAULT_MODEL;
 }
 
+// USD per 1M tokens, by model — used to estimate per-review cost.
+const MODEL_PRICES = {
+  'claude-opus-4-8': { in: 5, out: 25 },
+  'claude-opus-4-7': { in: 5, out: 25 },
+  'claude-sonnet-4-6': { in: 3, out: 15 },
+  'claude-haiku-4-5': { in: 1, out: 5 },
+  'claude-fable-5': { in: 10, out: 50 },
+};
+
+// Estimate cost from accumulated usage. Cache reads bill ~0.1x, writes ~1.25x.
+function estimateCost(model, u) {
+  const p = MODEL_PRICES[model];
+  if (!p) return null;
+  const inUsd = ((u.input || 0) + (u.cacheRead || 0) * 0.1 + (u.cacheCreation || 0) * 1.25) / 1e6 * p.in;
+  const outUsd = (u.output || 0) / 1e6 * p.out;
+  return inUsd + outUsd;
+}
+
 const MAX_TOKENS = 16000;
 const CLAUDE_MAX_RETRIES = 5;
 const CHUNK_SIZE_CHARS = 600_000;
@@ -105,6 +123,8 @@ const severityAtLeast = (s, min) => severityRank(s) <= severityRank(min);
 module.exports = {
   DEFAULT_MODEL,
   resolveModel,
+  MODEL_PRICES,
+  estimateCost,
   MAX_TOKENS,
   CLAUDE_MAX_RETRIES,
   CHUNK_SIZE_CHARS,

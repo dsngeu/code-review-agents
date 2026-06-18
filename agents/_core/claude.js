@@ -25,13 +25,15 @@ async function callClaude({ model, system, tool, content }) {
   }
 
   const toolUse = response.content.find((b) => b.type === 'tool_use' && b.name === tool.name);
-  if (!toolUse || !Array.isArray(toolUse.input?.findings)) return [];
-  return toolUse.input.findings.filter((f) => f && f.severity && f.description);
+  const findings = toolUse && Array.isArray(toolUse.input?.findings)
+    ? toolUse.input.findings.filter((f) => f && f.severity && f.description)
+    : [];
+  return { findings, usage: response.usage || null };
 }
 
 // Adversarial second pass: drop findings the verifier refutes. Fail-open on error.
 async function verifyFindings({ model, system, tool, buildUserPrompt, payload, findings, verify }) {
-  if (!verify || findings.length === 0) return findings;
+  if (!verify || findings.length === 0) return { findings, usage: null };
   try {
     const response = await client.messages.create({
       model,
@@ -41,18 +43,19 @@ async function verifyFindings({ model, system, tool, buildUserPrompt, payload, f
       tool_choice: { type: 'tool', name: tool.name },
       messages: [{ role: 'user', content: buildUserPrompt(payload, findings) }],
     });
+    const usage = response.usage || null;
     const toolUse = response.content.find((b) => b.type === 'tool_use' && b.name === tool.name);
-    if (!toolUse || !Array.isArray(toolUse.input?.results)) return findings;
+    if (!toolUse || !Array.isArray(toolUse.input?.results)) return { findings, usage };
 
     const refuted = new Set(
       toolUse.input.results.filter((r) => r.verdict === 'false_positive').map((r) => r.index)
     );
     const kept = findings.filter((_, i) => !refuted.has(i));
     if (refuted.size > 0) console.log(`Verifier removed ${refuted.size} false positive(s).`);
-    return kept;
+    return { findings: kept, usage };
   } catch (err) {
     console.error('Verification pass failed (keeping all findings):', err.message);
-    return findings;
+    return { findings, usage: null };
   }
 }
 

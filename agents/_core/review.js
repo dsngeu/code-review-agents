@@ -129,17 +129,29 @@ async function runReview(opts) {
     const chunks = pl.chunkPayload(payload);
     console.log(`Sending ${chunks.length} chunk(s), ${cfg.CHUNK_CONCURRENCY} at a time (verify=${cfg.VERIFY}).`);
 
+    // Accumulate token usage across every Claude call (review + verify, all chunks).
+    const usageTotal = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+    const addUsage = (u) => {
+      if (!u) return;
+      usageTotal.input += u.input_tokens || 0;
+      usageTotal.output += u.output_tokens || 0;
+      usageTotal.cacheRead += u.cache_read_input_tokens || 0;
+      usageTotal.cacheCreation += u.cache_creation_input_tokens || 0;
+    };
+
     // Per-chunk fail-open: a failed chunk returns null (sentinel), not [], so we
     // can distinguish "reviewed, found nothing" from "review failed".
     const results = await pl.mapWithConcurrency(chunks, cfg.CHUNK_CONCURRENCY, async (chunk, i) => {
       console.log(`Processing chunk ${i + 1}/${chunks.length}`);
       try {
-        let findings = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunk) });
-        findings = await verifyFindings({
+        const reviewed = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunk) });
+        addUsage(reviewed.usage);
+        const verified = await verifyFindings({
           model, system: verifySystemPrompt, tool: verificationTool,
-          buildUserPrompt: buildVerifyUserPrompt, payload: chunk, findings, verify: cfg.VERIFY,
+          buildUserPrompt: buildVerifyUserPrompt, payload: chunk, findings: reviewed.findings, verify: cfg.VERIFY,
         });
-        return findings;
+        addUsage(verified.usage);
+        return verified.findings;
       } catch (err) {
         console.error(`Chunk ${i + 1}/${chunks.length} failed, skipping:`, err.message);
         return null;
@@ -160,15 +172,24 @@ async function runReview(opts) {
     const allFindings = mergeFindings(results.map((r) => r || []));
     console.log(`Confirmed ${allFindings.length} finding(s).${failedChunks ? ` (${failedChunks} chunk(s) failed)` : ''}`);
 
+    // Cost / usage line.
+    const cost = cfg.estimateCost(model, usageTotal);
+    const inK = (usageTotal.input / 1000).toFixed(1);
+    const outK = (usageTotal.output / 1000).toFixed(1);
+    const costStr = cost != null ? ` · est. $${cost.toFixed(2)}` : '';
+    const usageLine = `Reviewed with \`${model}\` · ${inK}k in / ${outK}k out${costStr}`;
+    console.log(usageLine);
+    const footer = partialNote + `\n\n<sub>${usageLine}</sub>`;
+
     // 5. Emit through configured channels (read + comment only; no deletion).
     if (output.inlineComments) {
       await postInline(OWNER, REPO, PR_NUM, HEAD_SHA, allFindings, validLines, marker);
     }
     if (output.summaryComment) {
-      await postSummary(OWNER, REPO, PR_NUM, allFindings, skipped, mentions, marker, agentName, partialNote);
+      await postSummary(OWNER, REPO, PR_NUM, allFindings, skipped, mentions, marker, agentName, footer);
     }
     if (output.jobSummary) {
-      gh.writeJobSummary(buildJobSummary(agentName, allFindings, skipped, mentions, resolvedBase, process.env.REF, partialNote));
+      gh.writeJobSummary(buildJobSummary(agentName, allFindings, skipped, mentions, resolvedBase, process.env.REF, footer));
     }
 
     let summaryText = allFindings.length === 0
@@ -176,6 +197,7 @@ async function runReview(opts) {
       : `Found ${allFindings.length} finding(s) (${severityCounts(allFindings)}).` +
         (skipped.length ? ` ${skipped.length} file(s) skipped by budget.` : '');
     if (failedChunks) summaryText += ` ${failedChunks}/${chunks.length} chunk(s) failed — partial review.`;
+    summaryText += ` · ${usageLine.replace(/`/g, '')}`;
     if (checkRunId) await gh.updateCheckRun(OWNER, REPO, checkRunId, agentName, 'neutral', summaryText);
 
     console.log(`${agentName} completed.`);
@@ -219,7 +241,7 @@ async function postInline(owner, repo, prNum, sha, findings, validLines, marker)
   }
 }
 
-async function postSummary(owner, repo, prNum, findings, skipped, mentions, marker, agentName, partialNote = '') {
+async function postSummary(owner, repo, prNum, findings, skipped, mentions, marker, agentName, footer = '') {
   const hasCriticalOrHigh = findings.some((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
   let body;
   if (findings.length === 0) {
@@ -228,18 +250,18 @@ async function postSummary(owner, repo, prNum, findings, skipped, mentions, mark
     body = `${marker}\n## ${agentName}\n\nFound **${findings.length}** issue${findings.length === 1 ? '' : 's'} (${severityCounts(findings)}).\n\n${findingsTable(findings)}`;
     if (hasCriticalOrHigh && mentions) body += `\n\n${mentions} — HIGH/CRITICAL findings require attention.`;
   }
-  body += skippedNote(skipped) + partialNote;
+  body += skippedNote(skipped) + footer;
   await gh.upsertIssueComment(owner, repo, prNum, marker, body);
 }
 
-function buildJobSummary(agentName, findings, skipped, mentions, base, ref, partialNote = '') {
+function buildJobSummary(agentName, findings, skipped, mentions, base, ref, footer = '') {
   let md = `## ${agentName}\n\n**Branch:** \`${ref || '?'}\`  •  **Base:** \`${base || 'default'}\`\n\n`;
   if (findings.length === 0) {
     md += '✅ No issues found.';
   } else {
     md += `Found **${findings.length}** issue${findings.length === 1 ? '' : 's'} (${severityCounts(findings)}).\n\n${findingsTable(findings)}`;
   }
-  md += skippedNote(skipped) + partialNote;
+  md += skippedNote(skipped) + footer;
   return md;
 }
 

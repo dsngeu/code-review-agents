@@ -132,7 +132,7 @@ flowchart TD
 7. **Review chunks in parallel with Claude** — Chunks are sent to Claude several at a time (faster). Claude must reply in a **strict structured format** (a "tool call"), so there's no fragile text-parsing that could silently drop findings.
 8. **Verifier pass** — A *second* Claude call re-examines each finding and tries to **disprove** it. Anything that looks like a false alarm is dropped before you ever see it.
 9. **Merge + dedupe** — Findings from all chunks are combined, duplicates removed, and sorted by severity (CRITICAL first).
-10. **Emit (per agent)** — Results are posted where that agent puts them: **Agent 1** → inline comments + summary comment + Check Run; **Agent 3** → summary comment + Check Run; **Agent 2** → a report on the Actions run page (Job Summary).
+10. **Emit (per agent)** — Results are posted where that agent puts them: **Agent 1** → inline comments + summary comment + Check Run; **Agent 3** → summary comment + Check Run; **Agent 2** → a report on the Actions run page (Job Summary). Each result also shows a small **cost line** — e.g. *Reviewed with `claude-sonnet-4-6` · 14k in / 3k out · est. $0.09* — so you can see what each review actually cost.
 
 Key robustness behaviours built into the pipeline:
 - **Parallel chunks** — large diffs are reviewed several chunks at a time (faster).
