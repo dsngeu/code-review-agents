@@ -6,11 +6,11 @@ Centralized, reusable **code-review platform** for GitHub. Write the review logi
 
 | Agent | Trigger | Reviews | Output | Default model | Toggle |
 |-------|---------|---------|--------|---------------|--------|
-| **1 · Security** | Auto, every PR | Security vulnerabilities only | Inline + summary comments + Check Run | Opus | always on |
+| **1 · Security** | Auto, every PR | Security vulnerabilities only | Inline + summary comments + Check Run | Sonnet | always on |
 | **2 · Branch review** | Manual (Actions tab) | The branch's changes vs base — quality **+** security | Job Summary on the run page | Sonnet | n/a (manual) |
 | **3 · PR review** | Auto, every PR | General quality (bugs, perf, design) — **no security** | Single summary comment + Check Run | Sonnet | repo variable `ENABLE_PR_REVIEW` |
 
-All three @-mention the PR author + your reviewer list on HIGH/CRITICAL, and the **model is configurable per agent** (`model` workflow input, default `claude-opus-4-8`).
+All three @-mention the PR author + your reviewer list on HIGH/CRITICAL, and the **model is configurable per agent** (`model` workflow input, default `claude-sonnet-4-6`).
 
 > 📖 New here? Read **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)** — diagrams + plain-English walkthrough of how all three agents work and what code each one reviews.
 
@@ -139,7 +139,7 @@ Set these as repo/org variables or in the caller workflow's `env:` if you need t
 
 | Knob | Where | Default | Meaning |
 |------|-------|---------|---------|
-| `model` | caller `with:` input | per agent | Claude model id. Defaults: Agents 1 & 2 = `claude-opus-4-8`, Agent 3 = `claude-sonnet-4-6`. |
+| `model` | caller `with:` input | per agent | Claude model id. All agents default to `claude-sonnet-4-6`. |
 | `ENABLE_PR_REVIEW` | repo **variable** | unset | Set to `true` to enable Agent 3 (auto PR review) in a repo. |
 | `notify_users` | caller `with:` input | — | Extra comma-separated reviewers to @-mention (in addition to the PR author). |
 | `MAX_FILES` | env | `80` | Max changed files deeply analyzed; the rest are risk-ranked out and disclosed as skipped. |
@@ -151,7 +151,7 @@ Set these as repo/org variables or in the caller workflow's `env:` if you need t
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
-| `DEFAULT_MODEL` | `claude-opus-4-8` | Global model fallback when no `model` input is given |
+| `DEFAULT_MODEL` | `claude-sonnet-4-6` | Global model fallback when no `model` input is given |
 | `MAX_TOKENS` | `16000` | Max output tokens per Claude call |
 | `CLAUDE_MAX_RETRIES` | `5` | Retries on transient API errors (429/5xx) |
 | `CHUNK_SIZE_CHARS` | `600_000` | Char threshold (~150k tokens) before chunking |

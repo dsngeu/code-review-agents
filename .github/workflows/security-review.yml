@@ -26,10 +26,10 @@ on:
         type: string
         default: ''
       model:
-        description: 'Claude model id (default claude-opus-4-8).'
+        description: 'Claude model id (default claude-sonnet-4-6).'
         required: false
         type: string
-        default: 'claude-opus-4-8'
+        default: 'claude-sonnet-4-6'
     secrets:
       ANTHROPIC_API_KEY:
         required: true

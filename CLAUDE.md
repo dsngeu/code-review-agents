@@ -6,11 +6,11 @@ Guidance for Claude Code when working in this repository.
 
 A **centralized, reusable code-review platform** for GitHub. The logic lives here once; target repos add small caller workflows that invoke it. Three agents share one engine (`agents/_core`):
 
-- **Agent 1 — Security** (`agents/security/index.js`): auto on every PR, security-only, inline + summary comments + Check Run. Default model Opus.
+- **Agent 1 — Security** (`agents/security/index.js`): auto on every PR, security-only, inline + summary comments + Check Run. Default model Sonnet.
 - **Agent 2 — Branch review** (`agents/review/branch.js`): manual (`workflow_dispatch`), reviews branch-vs-base for general quality **+** security, writes to the Actions **Job Summary**. Default model Sonnet.
 - **Agent 3 — PR review** (`agents/review/pr.js`): auto on every PR, **general quality only** (no security — Agent 1 covers that), single summary comment, **toggled per repo** by the repo variable `ENABLE_PR_REVIEW`. Default model Sonnet.
 
-**All advisory only — never block a merge. Fail-open: agent errors never block a PR.** Model is configurable per agent via the `model` workflow input (→ `MODEL` env), default `claude-opus-4-8`.
+**All advisory only — never block a merge. Fail-open: agent errors never block a PR.** Model is configurable per agent via the `model` workflow input (→ `MODEL` env), default `claude-sonnet-4-6`.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ Each agent entrypoint is a thin wrapper that calls `runReview(opts)` with: agent
 ## Conventions
 
 - **Node 20+, CommonJS, native `fetch`.** Only runtime dep is `@anthropic-ai/sdk`; GitHub calls use plain `fetch` via the `githubRequest()` helper. Don't add an Octokit/HTTP dependency.
-- **Model:** `claude-opus-4-8`. Use the latest Anthropic SDK patterns (tool use, `tool_choice`).
+- **Model:** default `claude-sonnet-4-6` (configurable per agent). Use the latest Anthropic SDK patterns (tool use, `tool_choice`).
 - **Tunables are env-first** (`MAX_FILES`, `CHUNK_CONCURRENCY`, `INLINE_MIN_SEVERITY`, `VERIFY`) with code-constant defaults at the top of `index.js`. Add new knobs the same way.
 - Keep the agent **language-agnostic**: the prompt detects language per file. Don't hardcode a single ecosystem.
 

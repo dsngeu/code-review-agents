@@ -54,7 +54,7 @@ ASCII version of the same idea:
 | **What it looks for** | Security vulnerabilities only | Everything: bugs, performance, design **+ security** | Quality only: bugs, performance, design (**no** security) |
 | **Where results go** | Inline comments **+** summary comment **+** Check Run | **Job Summary** on the Actions run page | One summary comment **+** Check Run |
 | **On/off** | Always on | Manual (run when you want) | Per-repo toggle: variable `ENABLE_PR_REVIEW=true` |
-| **Default model** | Opus | Sonnet | Sonnet |
+| **Default model** | Sonnet | Sonnet | Sonnet |
 
 > **Why Agent 3 skips security:** Agent 1 already reviews every PR for security, so Agent 3 focuses purely on code quality to avoid duplicate findings.
 
