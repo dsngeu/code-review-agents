@@ -18,7 +18,7 @@ on:
         description: 'Claude model id'
         required: false
         type: string
-        default: 'claude-opus-4-8'
+        default: 'claude-sonnet-4-6'
 
 permissions:
   contents: read

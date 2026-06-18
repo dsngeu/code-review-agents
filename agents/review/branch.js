@@ -18,9 +18,9 @@ runReview({
   agentName: 'Branch Review',
   mode: 'branch',
   base: process.env.BASE || '', // '' → resolve repo default branch
-  // Model for THIS agent (deep review → Opus default). Override via the workflow `model` input.
+  // Model for THIS agent. Override via the workflow `model` input.
   // Options: claude-opus-4-8 | claude-opus-4-7 | claude-sonnet-4-6 | claude-haiku-4-5 | claude-fable-5
-  model: resolveModel('claude-opus-4-8'),
+  model: resolveModel('claude-sonnet-4-6'),
   marker: '<!-- branch-review-agent -->',
   systemPrompt: buildSystemPrompt({ includeSecurity: true }),
   buildUserPrompt,
