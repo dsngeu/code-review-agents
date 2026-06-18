@@ -50,7 +50,7 @@ ASCII version of the same idea:
 | | **Agent 1 — Security** | **Agent 2 — Branch Review** | **Agent 3 — PR Review** |
 |---|---|---|---|
 | **When it runs** | Automatically on every PR | Manually (Actions tab) | Automatically on every PR |
-| **What code it reviews** | The **PR diff** (files changed in the PR) | The **whole branch vs the base branch** (everything the branch changed) | The **PR diff** (files changed in the PR) |
+| **What code it reviews** | The **PR diff** (files changed in the PR) | The **files the branch changed vs the base branch** (the branch's diff — *not* the whole codebase) | The **PR diff** (files changed in the PR) |
 | **What it looks for** | Security vulnerabilities only | Everything: bugs, performance, design **+ security** | Quality only: bugs, performance, design (**no** security) |
 | **Where results go** | Inline comments **+** summary comment **+** Check Run | **Job Summary** on the Actions run page | One summary comment **+** Check Run |
 | **On/off** | Always on | Manual (run when you want) | Per-repo toggle: variable `ENABLE_PR_REVIEW=true` |
@@ -72,7 +72,7 @@ flowchart LR
     end
     subgraph BR["Agent 2 — triggered manually on a branch"]
         direction TB
-        BRD["compare(base...branch) = everything the branch changed vs main"]
+        BRD["compare(base...branch) = the files the branch changed vs base (main)"]
     end
     PRD --> ENG["Shared engine reviews the changed code<br/>(+ full file content + imported context)"]
     BRD --> ENG
@@ -82,6 +82,8 @@ In all cases the engine:
 - pulls the **full content of each changed file** (not just the diff lines) so the model has context,
 - pulls in **imported neighbour files** for extra data-flow context,
 - and **skips dependency/build artifacts** automatically (next section).
+
+> **Agent 2 is the branch's *diff* vs base, not the entire branch codebase.** Files the branch didn't touch are not reviewed. Two caps apply: GitHub's compare API returns at most **300 changed files** (and omits the patch for very large files), and the engine's `MAX_FILES` budget (default 80) reviews the highest-risk files and discloses the rest.
 
 ### What is always skipped (never reviewed)
 
@@ -118,6 +120,19 @@ flowchart TD
     O -->|Agent 3| O3["summary comment + Check Run"]
     O -->|Agent 2| O2["Job Summary on the run page"]
 ```
+
+### Each step in plain English
+
+1. **Trigger** — Someone opened/updated a PR (Agents 1 & 3), or clicked **Run** on a branch (Agent 2). GitHub spins up a temporary runner and starts the agent.
+2. **Fetch the code to review** — The agent asks GitHub for *what changed*: the PR's diff (Agents 1 & 3) or the branch-vs-base diff (Agent 2), along with the list of changed files. (It only ever looks at changes — never the whole repo.)
+3. **Skip deps/build artifacts** — It throws away anything that isn't your source code — `node_modules`, `Pods`, build output, lockfiles, images, etc. — so the model only spends effort on real code.
+4. **Risk-rank + budget** — If more files changed than the budget (`MAX_FILES`, default 80), it sorts them by how likely they are to contain problems (security-sensitive names + being actual code rank highest), reviews the top ones, and **lists any it skipped** so nothing is hidden.
+5. **Add context** — For each file it will review, it also pulls the **full file content** (not just the changed lines) and the **files that file imports**, so the model can understand the change instead of guessing. (See §3's `buildQuery` example.)
+6. **Chunk large diffs** — If it's all too big to send in one request, it splits the payload into chunks **on whole-file boundaries** (it never cuts a file in half).
+7. **Review chunks in parallel with Claude** — Chunks are sent to Claude several at a time (faster). Claude must reply in a **strict structured format** (a "tool call"), so there's no fragile text-parsing that could silently drop findings.
+8. **Verifier pass** — A *second* Claude call re-examines each finding and tries to **disprove** it. Anything that looks like a false alarm is dropped before you ever see it.
+9. **Merge + dedupe** — Findings from all chunks are combined, duplicates removed, and sorted by severity (CRITICAL first).
+10. **Emit (per agent)** — Results are posted where that agent puts them: **Agent 1** → inline comments + summary comment + Check Run; **Agent 3** → summary comment + Check Run; **Agent 2** → a report on the Actions run page (Job Summary).
 
 Key robustness behaviours built into the pipeline:
 - **Parallel chunks** — large diffs are reviewed several chunks at a time (faster).
