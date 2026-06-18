@@ -15,6 +15,16 @@ on:
         description: 'HEAD SHA of the PR branch'
         required: true
         type: string
+      pr_author:
+        description: 'GitHub username of the PR author (auto @-mentioned).'
+        required: false
+        type: string
+        default: ''
+      notify_users:
+        description: 'Extra comma-separated GitHub usernames to always @-mention on HIGH/CRITICAL, in addition to the PR author. The @ is optional.'
+        required: false
+        type: string
+        default: ''
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -56,3 +66,5 @@ jobs:
           TARGET_REPO: ${{ inputs.repo }}
           PR_NUMBER: ${{ inputs.pr_number }}
           HEAD_SHA: ${{ inputs.head_sha }}
+          PR_AUTHOR: ${{ inputs.pr_author }}
+          NOTIFY_USERS: ${{ inputs.notify_users }}

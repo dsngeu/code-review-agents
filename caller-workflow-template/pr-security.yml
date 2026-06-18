@@ -16,4 +16,9 @@ jobs:
       repo: ${{ github.repository }}
       pr_number: ${{ github.event.pull_request.number }}
       head_sha: ${{ github.event.pull_request.head.sha }}
+      # The PR author is auto-mentioned. This passes their username through.
+      pr_author: ${{ github.event.pull_request.user.login }}
+      # Extra users always mentioned in addition to the PR author (comma-separated,
+      # @ optional). Leave empty to use the hardcoded defaults in the agent.
+      notify_users: ''
     secrets: inherit

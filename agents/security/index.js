@@ -26,7 +26,30 @@ const CLAUDE_MODEL = 'claude-opus-4-8';
 const MAX_TOKENS = 16000;
 const CLAUDE_MAX_RETRIES = 5;
 const CHUNK_SIZE_CHARS = 600_000;
-const MENTION_USER = '@dsngeu';
+
+// Who to @-mention on HIGH/CRITICAL findings:
+//   the PR author (dynamic) + a fixed set of reviewers (hardcoded below).
+// ALWAYS_NOTIFY can also be overridden per repo via the NOTIFY_USERS env var.
+// ⚠️ Replace these with your actual reviewer usernames.
+const ALWAYS_NOTIFY = ['dsngeu'];
+
+const MENTION_USER = (() => {
+  const raw = [
+    process.env.PR_AUTHOR || '',
+    ...(process.env.NOTIFY_USERS ? process.env.NOTIFY_USERS.split(',') : ALWAYS_NOTIFY),
+  ];
+  const seen = new Set();
+  const users = [];
+  for (const u of raw) {
+    const name = u.trim().replace(/^@/, '');
+    if (name && !seen.has(name.toLowerCase())) {
+      seen.add(name.toLowerCase());
+      users.push(`@${name}`);
+    }
+  }
+  return users.join(' ');
+})();
+
 const MAX_INLINE_COMMENTS = 50;
 const MAX_FILE_CONTENT_BYTES = 100 * 1024; // 100KB
 const MAX_CONTEXT_FILES = 20; // extra unchanged files pulled in for data-flow context

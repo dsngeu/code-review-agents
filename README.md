@@ -20,7 +20,7 @@ Current agent: **Security Review** — reviews PR diffs for vulnerabilities usin
               ▲  "review my PR"
    ┌──────────┴──────────┬─────────────┐
 ┌────────┐         ┌────────┐     ┌────────┐
-│  news  │         │debrief │     │ future │   ← each has a 10-line caller workflow
+│ repo 1 │         │ repo 2 │     │ repo N │   ← each has a 10-line caller workflow
 └────────┘         └────────┘     └────────┘
 ```
 
@@ -66,7 +66,7 @@ package.json                            Dependencies (@anthropic-ai/sdk)
 
 ### 2. Add secrets to every participating repo
 
-Personal accounts can't share secrets across repos, so add both secrets to **this repo and each target repo** (`news`, `debrief`, …). `secrets: inherit` passes the *caller* repo's secrets into the reusable workflow, so each target repo needs its own copy.
+Personal accounts can't share secrets across repos, so add both secrets to **each target repo** (repo 1, repo 2, …). `secrets: inherit` passes the *caller* repo's secrets into the reusable workflow, so each target repo needs its own copy.
 
 In each repo: **Settings → Secrets and variables → Actions → New repository secret**
 
