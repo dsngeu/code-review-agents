@@ -12,6 +12,8 @@ Centralized, reusable **code-review platform** for GitHub. Write the review logi
 
 All three @-mention the PR author + your reviewer list on HIGH/CRITICAL, and the **model is configurable per agent** (`model` workflow input, default `claude-opus-4-8`).
 
+> 📖 New here? Read **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)** — diagrams + plain-English walkthrough of how all three agents work and what code each one reviews.
+
 ---
 
 ## How it works
