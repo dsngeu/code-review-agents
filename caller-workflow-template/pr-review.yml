@@ -1,0 +1,25 @@
+name: Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  trigger-code-review:
+    # Toggle per repo: set a repository variable ENABLE_PR_REVIEW = true to enable.
+    # Unset or any other value → this job is skipped (no run, no comment).
+    if: ${{ vars.ENABLE_PR_REVIEW == 'true' }}
+    uses: dsngeu/code-review-agents/.github/workflows/pr-review.yml@main
+    with:
+      repo: ${{ github.repository }}
+      pr_number: ${{ github.event.pull_request.number }}
+      head_sha: ${{ github.event.pull_request.head.sha }}
+      pr_author: ${{ github.event.pull_request.user.login }}
+      # notify_users: ''           # extra reviewers (comma-separated, @ optional)
+      # model: 'claude-sonnet-4-6' # override the model per repo
+    secrets: inherit

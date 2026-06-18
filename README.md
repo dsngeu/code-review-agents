@@ -1,55 +1,59 @@
 # code-review-agents
 
-Centralized, reusable code-review agents for GitHub pull requests. Write the review logic **once** here; every other repo just adds a tiny caller workflow and gets it automatically. Fix or improve the agent in one place and all repos pick it up.
+Centralized, reusable **code-review platform** for GitHub. Write the review logic **once** here; every other repo adds tiny caller workflows and gets it automatically. Fix or improve a shared engine once and all repos pick it up. Three agents share one engine, are **advisory only** (never block a merge), **fail-open**, and **polyglot** (detect each file's language and apply the right checks).
 
-Current agent: **Security Review** — reviews PR diffs for vulnerabilities using Claude Opus 4.8, posts inline comments + a summary, and @-mentions you on HIGH/CRITICAL findings. Advisory only — it never blocks a merge.
+## The three agents
+
+| Agent | Trigger | Reviews | Output | Default model | Toggle |
+|-------|---------|---------|--------|---------------|--------|
+| **1 · Security** | Auto, every PR | Security vulnerabilities only | Inline + summary comments + Check Run | Opus | always on |
+| **2 · Branch review** | Manual (Actions tab) | Whole branch vs base — quality **+** security | Job Summary on the run page | Opus | n/a (manual) |
+| **3 · PR review** | Auto, every PR | General quality (bugs, perf, design) — **no security** | Single summary comment + Check Run | Sonnet | repo variable `ENABLE_PR_REVIEW` |
+
+All three @-mention the PR author + your reviewer list on HIGH/CRITICAL, and the **model is configurable per agent** (`model` workflow input, default `claude-opus-4-8`).
 
 ---
 
 ## How it works
 
 ```
-┌─────────────────────────────────┐
-│  code-review-agents (this repo)  │   ← the brain (you maintain this)
-│  .github/workflows/              │
-│    security-review.yml           │   reusable workflow (workflow_call)
-│  agents/security/                │
-│    index.js                      │   agent logic
-│    prompt.js                     │   what to look for (polyglot)
-└─────────────────────────────────┘
-              ▲  "review my PR"
+┌─────────────────────────────────────────────┐
+│  code-review-agents (this repo) — the brain  │
+│  agents/_core/        shared engine          │
+│  agents/security/     Agent 1 (security)     │
+│  agents/review/       Agents 2 & 3 (quality) │
+│  .github/workflows/   3 reusable workflows   │
+└─────────────────────────────────────────────┘
+              ▲  callers invoke the reusable workflows
    ┌──────────┴──────────┬─────────────┐
 ┌────────┐         ┌────────┐     ┌────────┐
-│ repo 1 │         │ repo 2 │     │ repo N │   ← each has a 10-line caller workflow
+│ repo 1 │         │ repo 2 │     │ repo N │   ← each adds small caller workflows
 └────────┘         └────────┘     └────────┘
 ```
 
-When a PR is opened/updated in a target repo:
+A target repo's caller workflow invokes a reusable workflow here, which runs the matching agent on a GitHub-hosted runner. Each agent is a thin entrypoint over the shared `runReview()` engine, which:
+- Fetches the PR diff (or `compare/base...head` for branch reviews) + full content of changed files
+- **Skips dependency/build artifacts on any stack** (node_modules, Pods, Gradle, DerivedData, target/, .venv, lockfiles, binaries…)
+- Risk-ranks files and applies a `MAX_FILES` budget (discloses what it skipped)
+- Pulls in imported unchanged files for data-flow context
+- Chunks large diffs on file boundaries and reviews chunks **in parallel**
+- Returns **structured findings** via Claude tool-use (no brittle JSON parsing)
+- Runs an **adversarial verifier pass** that drops false positives
+- Emits via the agent's channels (inline / summary comment / Job Summary / Check Run), **idempotently** (deletes its prior comments first)
 
-1. The target repo's caller workflow (`pr-security.yml`) fires on `opened`, `synchronize`, `reopened`.
-2. It invokes this repo's reusable workflow, passing the repo name, PR number, and HEAD SHA.
-3. The agent (`agents/security/index.js`) runs on a GitHub-hosted runner:
-   - Fetches the PR diff + full content of changed files (skips lockfiles/binaries)
-   - Chunks very large PRs on file boundaries
-   - Sends each chunk to **Claude Opus 4.8** with a security-focused, language-aware prompt
-   - Parses structured findings: `severity`, `confidence`, `file`, `line`, `description`, `fix`
-   - Posts **inline review comments** on the exact lines + a **summary comment**
-   - @-mentions `@dsngeu` if any CRITICAL/HIGH finding exists (GitHub emails you)
-   - Records a **Check Run** (always `neutral` — visible but never blocking)
-4. **Fail-open:** if anything errors (API down, bad key), it posts a comment explaining why, @-mentions you, sets the Check Run to `neutral`, and never blocks the PR.
-
-The prompt is **polyglot** — it detects each file's language from its extension and applies the right checks (Node/JS, Python, Go, Java, Kotlin/Android, Swift/iOS, PHP, etc.) plus universal categories (injection, secrets, crypto, auth, SSRF, path traversal…).
+**Fail-open:** any error → an error comment / Job-Summary note + @-mention, Check Run `neutral`, never blocks the PR.
 
 ---
 
 ## Repository layout
 
 ```
-.github/workflows/security-review.yml   Reusable workflow (workflow_call)
-agents/security/index.js                Main agent script
-agents/security/prompt.js               System + user prompts
-caller-workflow-template/pr-security.yml Copy this into each target repo
-package.json                            Dependencies (@anthropic-ai/sdk)
+agents/_core/        config.js · github.js · payload.js · claude.js · review.js (shared engine)
+agents/security/     index.js (Agent 1) · prompt.js (security lens)
+agents/review/       prompt.js (general lens) · pr.js (Agent 3) · branch.js (Agent 2)
+.github/workflows/   security-review.yml · pr-review.yml · branch-review.yml (reusable)
+caller-workflow-template/  pr-security.yml · pr-review.yml · branch-review.yml (copy into target repos)
+package.json         Dependencies (@anthropic-ai/sdk)
 ```
 
 ---
@@ -83,28 +87,19 @@ Names must match exactly.
 
 Push `code-review-agents` to GitHub on the `main` branch so the reusable workflow exists.
 
-### 4. Add the caller workflow to a target repo
+### 4. Add the caller workflow(s) to a target repo
 
-Copy `caller-workflow-template/pr-security.yml` into the target repo at `.github/workflows/pr-security.yml` and push to `main`:
+Copy the caller(s) you want from `caller-workflow-template/` into the target repo's `.github/workflows/` and push. Each repo can run any subset of the three agents:
 
-```yaml
-name: Security Review
+| Agent | Copy this template | Notes |
+|-------|-------------------|-------|
+| **1 · Security** | `pr-security.yml` | Auto on every PR. No extra config. |
+| **3 · PR review** | `pr-review.yml` | Auto on every PR, **but gated** — set repo variable `ENABLE_PR_REVIEW=true` to turn it on (unset = skipped). |
+| **2 · Branch review** | `branch-review.yml` | Manual — appears under the repo's **Actions** tab; run it against a branch. |
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+> **Enabling Agent 3:** in the target repo → **Settings → Secrets and variables → Actions → Variables → New repository variable** → `ENABLE_PR_REVIEW` = `true`. Set it to anything else (or delete it) to disable — no file changes needed.
 
-jobs:
-  trigger-security-review:
-    uses: dsngeu/code-review-agents/.github/workflows/security-review.yml@main
-    with:
-      repo: ${{ github.repository }}
-      pr_number: ${{ github.event.pull_request.number }}
-      head_sha: ${{ github.event.pull_request.head.sha }}
-    secrets: inherit
-```
-
-Repeat for each repo you want covered. This is the only file a target repo needs.
+> **Per-repo model override:** add `model: 'claude-sonnet-4-6'` (or any model id) under `with:` in any caller to change that agent's model for that repo.
 
 ---
 
@@ -140,27 +135,30 @@ Repeat for each repo you want covered. This is the only file a target repo needs
 
 Set these as repo/org variables or in the caller workflow's `env:` if you need to override defaults:
 
-| Env var | Default | Meaning |
-|---------|---------|---------|
-| `MAX_FILES` | `80` | Max changed files deeply analyzed. Beyond this, the highest-risk files are reviewed and the rest are disclosed as skipped. |
-| `CHUNK_CONCURRENCY` | `4` | How many chunks are sent to Claude in parallel (speeds up large PRs). |
-| `INLINE_MIN_SEVERITY` | `LOW` | Minimum severity for an **inline** comment. Everything still appears in the summary. Set to `MEDIUM` to reduce inline noise. |
-| `VERIFY` | `true` | Adversarial second pass that drops false positives. Set `false` to disable (faster, cheaper, noisier). |
+| Knob | Where | Default | Meaning |
+|------|-------|---------|---------|
+| `model` | caller `with:` input | per agent | Claude model id. Defaults: Agents 1 & 2 = `claude-opus-4-8`, Agent 3 = `claude-sonnet-4-6`. |
+| `ENABLE_PR_REVIEW` | repo **variable** | unset | Set to `true` to enable Agent 3 (auto PR review) in a repo. |
+| `notify_users` | caller `with:` input | — | Extra comma-separated reviewers to @-mention (in addition to the PR author). |
+| `MAX_FILES` | env | `80` | Max changed files deeply analyzed; the rest are risk-ranked out and disclosed as skipped. |
+| `CHUNK_CONCURRENCY` | env | `4` | Chunks sent to Claude in parallel. |
+| `INLINE_MIN_SEVERITY` | env | `LOW` | Minimum severity for an **inline** comment (everything still appears in the summary). |
+| `VERIFY` | env | `true` | Adversarial pass that drops false positives. `false` = faster/cheaper/noisier. |
 
-### Code constants (top of `agents/security/index.js`)
+### Code constants (`agents/_core/config.js`)
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
-| `CLAUDE_MODEL` | `claude-opus-4-8` | Model used for review |
+| `DEFAULT_MODEL` | `claude-opus-4-8` | Global model fallback when no `model` input is given |
 | `MAX_TOKENS` | `16000` | Max output tokens per Claude call |
 | `CLAUDE_MAX_RETRIES` | `5` | Retries on transient API errors (429/5xx) |
 | `CHUNK_SIZE_CHARS` | `600_000` | Char threshold (~150k tokens) before chunking |
-| `MENTION_USER` | `@dsngeu` | Who to @-mention on HIGH/CRITICAL |
+| `ALWAYS_NOTIFY` | `['dsngeu']` | Hardcoded reviewer fallback (used when `notify_users` is empty) |
 | `MAX_INLINE_COMMENTS` | `50` | Cap on inline comments per review |
 | `MAX_CONTEXT_FILES` | `20` | Unchanged imported files pulled in for data-flow context |
-| `SKIP_PATTERNS` | lockfiles, binaries, vendored, minified | Files excluded from review |
+| `SKIP_PATTERNS` | deps/build/binaries (all stacks) | Files excluded from review |
 
-The review criteria and Claude tool schemas live in `agents/security/prompt.js`.
+Security review criteria live in `agents/security/prompt.js`; general review criteria in `agents/review/prompt.js`.
 
 ### How it handles tricky cases
 
@@ -173,16 +171,17 @@ The review criteria and Claude tool schemas live in `agents/security/prompt.js`.
 
 ## Design guarantees
 
-- **No servers** — runs on GitHub Actions, on demand, only when a PR opens.
-- **One source of truth** — fix the agent here, every repo updates instantly.
-- **Parallel & independent** — each PR runs its own isolated job.
-- **Advisory only** — v1 never blocks a merge.
+- **Read + comment only** — agents can only read code and post/update PR comments. They **cannot modify or delete code, branches, PRs, or comments.** Enforced two ways: the workflow token is `contents: read` (no push/edit/delete), and the code hard-blocks every HTTP method except GET/POST/PATCH (DELETE/PUT throw). Re-runs update the existing comment in place — never delete.
+- **No servers** — runs on GitHub Actions, on demand.
+- **One source of truth** — fix the shared engine here, every repo updates instantly.
+- **Per-agent model** — each agent's model is set via the `model` input (see Configuration); change one without touching others.
+- **Advisory only** — never blocks a merge.
 - **Fail-open** — agent errors never block a PR.
 
 ---
 
 ## Roadmap
 
-- Additional agents (style/quality, performance) beyond security
 - GitHub App auth (for client accounts, instead of a personal PAT)
 - Optional merge-blocking mode
+- Additional review lenses (accessibility, test quality) on the shared engine

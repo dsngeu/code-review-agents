@@ -1,7 +1,7 @@
 'use strict';
 
-// Agent 1 — Security review. Auto on every PR. Thin entrypoint over the shared
-// engine: security lens, inline + summary comments + check run.
+// Agent 2 — Full branch review (general quality + security). Manually triggered.
+// Reviews branch vs base; writes the report to the GitHub Actions Job Summary.
 
 const { runReview } = require('../_core/review');
 const { resolveModel } = require('../_core/config');
@@ -15,17 +15,18 @@ const {
 } = require('./prompt');
 
 runReview({
-  agentName: 'Security Review',
-  mode: 'pr',
-  // Model for THIS agent. Override per repo via the workflow `model` input.
+  agentName: 'Branch Review',
+  mode: 'branch',
+  base: process.env.BASE || '', // '' → resolve repo default branch
+  // Model for THIS agent (deep review → Opus default). Override via the workflow `model` input.
   // Options: claude-opus-4-8 | claude-opus-4-7 | claude-sonnet-4-6 | claude-haiku-4-5 | claude-fable-5
   model: resolveModel('claude-opus-4-8'),
-  marker: '<!-- security-review-agent -->',
-  systemPrompt: buildSystemPrompt(),
+  marker: '<!-- branch-review-agent -->',
+  systemPrompt: buildSystemPrompt({ includeSecurity: true }),
   buildUserPrompt,
   findingsTool: FINDINGS_TOOL,
   verifySystemPrompt: buildVerifySystemPrompt(),
   buildVerifyUserPrompt,
   verificationTool: VERIFICATION_TOOL,
-  output: { checkRun: true, inlineComments: true, summaryComment: true, jobSummary: false },
+  output: { checkRun: false, inlineComments: false, summaryComment: false, jobSummary: true },
 });

@@ -1,10 +1,10 @@
-name: Security Review (Reusable)
+name: Code Review (Reusable)
 
 on:
   workflow_call:
     inputs:
       repo:
-        description: 'Target repo in owner/name format (e.g. dsngeu/news)'
+        description: 'Target repo in owner/name format'
         required: true
         type: string
       pr_number:
@@ -21,15 +21,15 @@ on:
         type: string
         default: ''
       notify_users:
-        description: 'Extra comma-separated GitHub usernames to always @-mention on HIGH/CRITICAL, in addition to the PR author. The @ is optional.'
+        description: 'Extra comma-separated usernames to @-mention on HIGH/CRITICAL.'
         required: false
         type: string
         default: ''
       model:
-        description: 'Claude model id (default claude-opus-4-8).'
+        description: 'Claude model id (default claude-sonnet-4-6).'
         required: false
         type: string
-        default: 'claude-opus-4-8'
+        default: 'claude-sonnet-4-6'
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -37,7 +37,7 @@ on:
         required: true
 
 jobs:
-  security-review:
+  code-review:
     runs-on: ubuntu-latest
     # Read code + comment only. `contents: read` means the runner token cannot
     # push, edit files, or delete branches; only PR comments + check runs.
@@ -62,13 +62,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Security Review Agent
-        run: node agents/security/index.js
+      - name: Run Code Review Agent
+        run: node agents/review/pr.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Built-in Actions token (a GitHub App token) — required to create
-          # Check Runs and post comments on the target repo. GH_PAT cannot
-          # create Check Runs (Checks API rejects classic PATs with 403).
           GH_TOKEN: ${{ github.token }}
           TARGET_REPO: ${{ inputs.repo }}
           PR_NUMBER: ${{ inputs.pr_number }}
