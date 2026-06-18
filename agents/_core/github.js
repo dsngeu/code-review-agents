@@ -76,7 +76,9 @@ async function fetchPRFiles(owner, repo, prNum) {
 
 // Branch mode: compare base...head → { diff, files }.
 async function fetchCompare(owner, repo, base, head) {
-  const data = await githubRequest('GET', `/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
+  // Encode ref segments but keep slashes — branch names like `feat/x` must stay
+  // `feat/x` (percent-encoding the slash 404s the compare API).
+  const data = await githubRequest('GET', `/repos/${owner}/${repo}/compare/${encodePath(base)}...${encodePath(head)}`);
   const files = data.files || [];
   // Reconstruct a unified diff from per-file patches so parseDiffValidLines works.
   const diff = files

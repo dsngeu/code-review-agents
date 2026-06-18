@@ -7,7 +7,7 @@ Centralized, reusable **code-review platform** for GitHub. Write the review logi
 | Agent | Trigger | Reviews | Output | Default model | Toggle |
 |-------|---------|---------|--------|---------------|--------|
 | **1 · Security** | Auto, every PR | Security vulnerabilities only | Inline + summary comments + Check Run | Opus | always on |
-| **2 · Branch review** | Manual (Actions tab) | Whole branch vs base — quality **+** security | Job Summary on the run page | Opus | n/a (manual) |
+| **2 · Branch review** | Manual (Actions tab) | Whole branch vs base — quality **+** security | Job Summary on the run page | Sonnet | n/a (manual) |
 | **3 · PR review** | Auto, every PR | General quality (bugs, perf, design) — **no security** | Single summary comment + Check Run | Sonnet | repo variable `ENABLE_PR_REVIEW` |
 
 All three @-mention the PR author + your reviewer list on HIGH/CRITICAL, and the **model is configurable per agent** (`model` workflow input, default `claude-opus-4-8`).

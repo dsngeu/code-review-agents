@@ -28,6 +28,9 @@ function severityCounts(findings) {
 const remediationOf = (f) => f.fix || f.suggestion || '';
 const hasCategory = (findings) => findings.some((f) => f.category);
 
+// Make a value safe for a markdown table cell: escape pipes, flatten newlines.
+const cell = (v) => String(v ?? '—').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim() || '—';
+
 function findingsTable(findings) {
   const withCat = hasCategory(findings);
   const header = withCat
@@ -35,8 +38,8 @@ function findingsTable(findings) {
     : '| Severity | Confidence | File | Line | Description |\n|---|---|---|---|---|';
   const rows = findings.map((f) =>
     withCat
-      ? `| ${f.severity} | ${f.category || '—'} | ${f.confidence || '—'} | \`${f.file}\` | ${f.line ?? '—'} | ${f.description} |`
-      : `| ${f.severity} | ${f.confidence || '—'} | \`${f.file}\` | ${f.line ?? '—'} | ${f.description} |`
+      ? `| ${cell(f.severity)} | ${cell(f.category)} | ${cell(f.confidence)} | \`${cell(f.file)}\` | ${f.line ?? '—'} | ${cell(f.description)} |`
+      : `| ${cell(f.severity)} | ${cell(f.confidence)} | \`${cell(f.file)}\` | ${f.line ?? '—'} | ${cell(f.description)} |`
   );
   return [header, ...rows].join('\n');
 }
@@ -128,12 +131,18 @@ async function runReview(opts) {
 
     const findingArrays = await pl.mapWithConcurrency(chunks, cfg.CHUNK_CONCURRENCY, async (chunk, i) => {
       console.log(`Processing chunk ${i + 1}/${chunks.length}`);
-      let findings = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunk) });
-      findings = await verifyFindings({
-        model, system: verifySystemPrompt, tool: verificationTool,
-        buildUserPrompt: buildVerifyUserPrompt, payload: chunk, findings, verify: cfg.VERIFY,
-      });
-      return findings;
+      try {
+        let findings = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunk) });
+        findings = await verifyFindings({
+          model, system: verifySystemPrompt, tool: verificationTool,
+          buildUserPrompt: buildVerifyUserPrompt, payload: chunk, findings, verify: cfg.VERIFY,
+        });
+        return findings;
+      } catch (err) {
+        // Fail-open per chunk: one chunk's error must not discard the others.
+        console.error(`Chunk ${i + 1}/${chunks.length} failed, skipping:`, err.message);
+        return [];
+      }
     });
 
     const allFindings = mergeFindings(findingArrays);
@@ -239,7 +248,7 @@ async function emitError(opts, ctx) {
   const msg = `**Error:** ${err.message}`;
   if (opts.output.summaryComment && PR_NUM) {
     const body = `${marker}\n## ${agentName} — Error\n\nThe agent could not complete.\n\n${msg}\n\n${mentions} — please re-run or review manually.`;
-    await gh.postIssueComment(OWNER, REPO, PR_NUM, body);
+    await gh.upsertIssueComment(OWNER, REPO, PR_NUM, marker, body); // update-in-place, no spam on repeated failures
   }
   if (opts.output.jobSummary) {
     gh.writeJobSummary(`## ${agentName} — Error\n\nThe agent could not complete.\n\n${msg}`);
