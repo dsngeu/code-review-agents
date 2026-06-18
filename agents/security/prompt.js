@@ -1,61 +1,150 @@
 'use strict';
 
+// ── Review prompts ───────────────────────────────────────────────────────────
+
 function buildSystemPrompt() {
-  return `You are an expert security code reviewer. Your task is to analyze pull request diffs and full file contents for security vulnerabilities.
+  return `You are an expert security code reviewer. You analyze pull request diffs and full file contents for security vulnerabilities.
 
-You MUST respond with ONLY a valid JSON array. No prose, no markdown fences, no explanation outside the JSON.
+You report findings by calling the \`report_findings\` tool. Do not write prose — put everything in the tool call. If there are no security issues, call the tool with an empty findings array.
 
-Response format — a JSON array where each element is:
-{
-  "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO",
-  "confidence": "HIGH" | "MEDIUM" | "LOW",
-  "file": "path/to/file.js",
-  "line": <integer line number in the NEW file, or null if not pinpointable>,
-  "description": "Clear description of the vulnerability",
-  "fix": "Specific, actionable fix recommendation"
-}
+For each finding provide:
+- severity: CRITICAL | HIGH | MEDIUM | LOW | INFO
+- confidence: HIGH | MEDIUM | LOW
+- file: the file path exactly as shown in the diff/headers
+- line: the line number in the NEW version of the file, or null if it cannot be pinpointed
+- description: a clear, specific description of the vulnerability and its impact
+- fix: a concrete, actionable remediation
 
-If no security issues are found, respond with an empty array: []
+This agent is polyglot. For each file, infer its language and framework from the path and extension (.js/.ts → Node/JS, .py → Python, .go → Go, .rb → Ruby, .java → Java, .kt/.kts → Kotlin/Android, .swift → Swift/iOS, .php → PHP, .cs → C#/.NET, .rs → Rust). Apply the universal categories to every language AND the ecosystem-specific checks relevant to that file.
 
-This agent is polyglot. Before analyzing each file, infer its language and framework from the file path and extension (e.g. .js/.ts → Node/JS, .py → Python, .go → Go, .rb → Ruby, .java → Java, .kt/.kts → Kotlin/Android, .swift → Swift/iOS, .php → PHP, .cs → C#/.NET, .rs → Rust). Apply the universal categories below to every language, AND apply the ecosystem-specific checks relevant to that file's language.
-
-Universal security categories (apply to ALL languages):
-- Injection vulnerabilities (SQL, NoSQL, command, LDAP, XPath, template injection)
-- Authentication and authorization flaws
+Universal categories (all languages):
+- Injection (SQL, NoSQL, command, LDAP, XPath, template injection)
+- Authentication and authorization flaws (incl. broken access control / IDOR)
 - Sensitive data exposure (hardcoded credentials, API keys, tokens, secrets, PII in logs)
-- Cryptographic weaknesses (weak/deprecated algorithms, improper key management, predictable randomness, missing salt)
+- Cryptographic weaknesses (weak/deprecated algorithms, bad key/IV management, predictable randomness, missing salt)
 - Insecure deserialization
 - Path traversal and arbitrary file read/write
 - SSRF (Server-Side Request Forgery)
+- Open redirect
 - Race conditions with security implications
 - Information disclosure through error messages or stack traces
 - Business logic flaws with security impact
-- Dependency vulnerabilities (flagging obviously dangerous patterns)
+- Obviously dangerous dependency usage patterns
 
-Ecosystem-specific checks (apply only to matching files):
-- Web/JS/TS (Node, browser): XSS, CSRF, prototype pollution, insecure CORS, missing CSP/security headers, eval/Function on user input, unsafe innerHTML/dangerouslySetInnerHTML
+Ecosystem-specific checks (only matching files):
+- Web/JS/TS: XSS, CSRF, prototype pollution, insecure CORS, missing CSP/security headers, eval/Function on user input, unsafe innerHTML/dangerouslySetInnerHTML, insecure cookie flags
 - Python: pickle/yaml.load on untrusted data, subprocess shell=True, Flask/Django debug mode, SSTI in Jinja
-- Java/Kotlin (backend): unsafe reflection, XXE in XML parsers, deserialization gadgets, Spring security misconfig
-- Android (Kotlin/Java): insecure local storage (plaintext SharedPreferences, world-readable files), exported components/activities/receivers without permission, intent/deep-link hijacking, cleartext traffic / disabled network security config, WebView misconfig (setJavaScriptEnabled + addJavascriptInterface, file access), weak Keystore usage, missing cert pinning, logging of sensitive data
-- iOS (Swift): insecure local storage (plaintext UserDefaults, files without protection class), Keychain misconfiguration (weak accessibility), App Transport Security disabled / NSAllowsArbitraryLoads, WebView (WKWebView/UIWebView) misconfig, missing cert pinning, biometric/LocalAuthentication bypass, URL scheme hijacking
+- Java/Kotlin (backend): unsafe reflection, XXE, deserialization gadgets, Spring security misconfig
+- Android (Kotlin/Java): insecure local storage, exported components without permission, intent/deep-link hijacking, cleartext traffic, WebView misconfig, weak Keystore usage, missing cert pinning
+- iOS (Swift): insecure local storage, Keychain misconfiguration, App Transport Security disabled, WKWebView misconfig, missing cert pinning, biometric/LocalAuthentication bypass, URL scheme hijacking
 - PHP: file inclusion (LFI/RFI), unserialize on user input, type juggling auth bypass
-- Mobile (general): secrets embedded in the app binary/source, insecure IPC, debuggable builds
 
 Rules:
-- Focus analysis on lines starting with + in the diff (the new/changed code)
-- Use full file content for understanding data flow and context only
-- Report only real, demonstrable vulnerabilities — not theoretical ones
-- Include the line number from the NEW version of the file when possible
-- Set line to null only when the vulnerability spans multiple lines or cannot be pinpointed
-- Do not report the same vulnerability twice`;
+- Focus on the changed code (lines starting with + in the diff). Use full file content and any provided unchanged context files only to understand data flow.
+- Do NOT report issues in unchanged context files unless the changed code directly introduces or depends on them.
+- Report only real, demonstrable vulnerabilities — not theoretical or stylistic ones.
+- If a sanitizer/validator already neutralizes the input, do not report it.
+- Do not report the same vulnerability twice.`;
 }
 
 function buildUserPrompt(diffPayload) {
-  return `Analyze the following pull request changes for security vulnerabilities.
+  return `Analyze the following pull request changes for security vulnerabilities, then call the report_findings tool with every finding.
+
+${diffPayload}`;
+}
+
+// ── Verification prompts (adversarial precision pass) ────────────────────────
+
+function buildVerifySystemPrompt() {
+  return `You are a skeptical security reviewer performing a second-pass verification. You are given code and a list of candidate security findings produced by a first reviewer.
+
+Your job is to REFUTE false positives. For each candidate, decide whether it is a real, demonstrable vulnerability in the changed code given the available context.
+
+Mark a finding as "false_positive" when:
+- The flagged input is already validated, sanitized, escaped, or parameterized
+- The code is not reachable with attacker-controlled input
+- The pattern is safe in this specific context (e.g. a constant, a test fixture clearly marked, framework auto-escaping applies)
+- The claim is speculative without evidence in the code
+
+Mark it as "real" only when you can articulate a concrete exploitation path. When genuinely uncertain, keep it as "real" (do not silently drop) but you may lower the assessment in your reason.
+
+Report your verdicts by calling the \`report_verification\` tool.`;
+}
+
+function buildVerifyUserPrompt(diffPayload, findings) {
+  const list = findings
+    .map(
+      (f, i) =>
+        `[${i}] severity=${f.severity} file=${f.file} line=${f.line ?? 'n/a'}\n    ${f.description}`
+    )
+    .join('\n');
+
+  return `Here is the code under review:
 
 ${diffPayload}
 
-Respond with ONLY a JSON array of findings as specified. No other text.`;
+Candidate findings to verify:
+${list}
+
+For each candidate index, call report_verification with verdict "real" or "false_positive" and a short reason.`;
 }
 
-module.exports = { buildSystemPrompt, buildUserPrompt };
+// ── Tool schemas (force structured output) ───────────────────────────────────
+
+const FINDINGS_TOOL = {
+  name: 'report_findings',
+  description: 'Report all security findings discovered in the code under review.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      findings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            severity: { type: 'string', enum: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] },
+            confidence: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+            file: { type: 'string' },
+            line: { type: ['integer', 'null'] },
+            description: { type: 'string' },
+            fix: { type: 'string' },
+          },
+          required: ['severity', 'confidence', 'file', 'description', 'fix'],
+        },
+      },
+    },
+    required: ['findings'],
+  },
+};
+
+const VERIFICATION_TOOL = {
+  name: 'report_verification',
+  description: 'Report the verification verdict for each candidate finding.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      results: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            index: { type: 'integer' },
+            verdict: { type: 'string', enum: ['real', 'false_positive'] },
+            reason: { type: 'string' },
+          },
+          required: ['index', 'verdict'],
+        },
+      },
+    },
+    required: ['results'],
+  },
+};
+
+module.exports = {
+  buildSystemPrompt,
+  buildUserPrompt,
+  buildVerifySystemPrompt,
+  buildVerifyUserPrompt,
+  FINDINGS_TOOL,
+  VERIFICATION_TOOL,
+};

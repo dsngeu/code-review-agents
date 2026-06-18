@@ -136,17 +136,38 @@ Repeat for each repo you want covered. This is the only file a target repo needs
 
 ## Configuration
 
-Key knobs live at the top of `agents/security/index.js`:
+### Environment variables (tune per target repo, no code change)
+
+Set these as repo/org variables or in the caller workflow's `env:` if you need to override defaults:
+
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `MAX_FILES` | `80` | Max changed files deeply analyzed. Beyond this, the highest-risk files are reviewed and the rest are disclosed as skipped. |
+| `CHUNK_CONCURRENCY` | `4` | How many chunks are sent to Claude in parallel (speeds up large PRs). |
+| `INLINE_MIN_SEVERITY` | `LOW` | Minimum severity for an **inline** comment. Everything still appears in the summary. Set to `MEDIUM` to reduce inline noise. |
+| `VERIFY` | `true` | Adversarial second pass that drops false positives. Set `false` to disable (faster, cheaper, noisier). |
+
+### Code constants (top of `agents/security/index.js`)
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
 | `CLAUDE_MODEL` | `claude-opus-4-8` | Model used for review |
+| `MAX_TOKENS` | `16000` | Max output tokens per Claude call |
+| `CLAUDE_MAX_RETRIES` | `5` | Retries on transient API errors (429/5xx) |
 | `CHUNK_SIZE_CHARS` | `600_000` | Char threshold (~150k tokens) before chunking |
 | `MENTION_USER` | `@dsngeu` | Who to @-mention on HIGH/CRITICAL |
 | `MAX_INLINE_COMMENTS` | `50` | Cap on inline comments per review |
-| `SKIP_PATTERNS` | lockfiles, binaries | Files excluded from review |
+| `MAX_CONTEXT_FILES` | `20` | Unchanged imported files pulled in for data-flow context |
+| `SKIP_PATTERNS` | lockfiles, binaries, vendored, minified | Files excluded from review |
 
-The review criteria live in `agents/security/prompt.js`.
+The review criteria and Claude tool schemas live in `agents/security/prompt.js`.
+
+### How it handles tricky cases
+
+- **Large PRs:** files are risk-ranked (security keywords + code-ness beat raw size); top `MAX_FILES` reviewed, rest disclosed in the summary — never silently dropped.
+- **Reliable findings:** Claude returns structured tool output (no JSON parsing); inline comment lines are validated against the diff, with per-comment fallback so one bad line can't drop the whole review.
+- **Fewer false positives:** the verifier pass refutes weak findings before they're posted.
+- **Idempotent re-runs:** each push deletes the agent's prior comments (tagged with a hidden marker) before posting fresh ones — no duplicate spam.
 
 ---
 
