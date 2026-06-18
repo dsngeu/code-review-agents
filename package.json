@@ -1,0 +1,12 @@
+{
+  "name": "code-review-agents",
+  "version": "1.0.0",
+  "description": "Centralized code review agents for GitHub PRs",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.37.0"
+  }
+}
