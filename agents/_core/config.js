@@ -54,6 +54,14 @@ const INLINE_MIN_SEVERITY = (process.env.INLINE_MIN_SEVERITY || 'LOW').toUpperCa
 // Adversarial verification pass on by default; set VERIFY=false to disable.
 const VERIFY = process.env.VERIFY !== 'false';
 
+// Precision tuning (Step 4 — all default to current behavior; opt-in to tighten).
+// Minimum confidence for a finding to be POSTED. Default LOW = post everything.
+// Raise to MEDIUM/HIGH to suppress speculative low-confidence findings.
+const MIN_CONFIDENCE = (process.env.MIN_CONFIDENCE || 'LOW').toUpperCase();
+// Independent verifier passes for HIGH/CRITICAL findings; a finding is dropped only
+// if a MAJORITY of votes refute it. Default 1 = today's single pass (no extra cost).
+const VERIFY_HIGH_STAKES_VOTES = Math.max(1, parseInt(process.env.VERIFY_HIGH_STAKES_VOTES || '1', 10));
+
 // Hardcoded fallback reviewers when NOTIFY_USERS is not supplied.
 // ⚠️ Replace with your actual reviewer usernames.
 const ALWAYS_NOTIFY = ['dsngeu'];
@@ -120,6 +128,19 @@ const severityRank = (s) => {
 };
 const severityAtLeast = (s, min) => severityRank(s) <= severityRank(min);
 
+// Confidence ordering mirrors severity: lower rank = stronger. A missing/unknown
+// confidence is treated as LOW (the weakest VALID level) — so it still passes the
+// default MIN_CONFIDENCE=LOW gate and is never silently dropped by default.
+const CONFIDENCE_ORDER = ['HIGH', 'MEDIUM', 'LOW'];
+const confidenceRank = (c) => {
+  const i = CONFIDENCE_ORDER.indexOf((c || '').toUpperCase());
+  return i === -1 ? CONFIDENCE_ORDER.length - 1 : i; // unknown → LOW
+};
+const confidenceAtLeast = (c, min) => confidenceRank(c) <= confidenceRank(min);
+
+// Is this a high-stakes finding (gets multi-vote verification)?
+const isHighStakes = (f) => f && (String(f.severity).toUpperCase() === 'CRITICAL' || String(f.severity).toUpperCase() === 'HIGH');
+
 module.exports = {
   DEFAULT_MODEL,
   resolveModel,
@@ -135,6 +156,8 @@ module.exports = {
   CHUNK_CONCURRENCY,
   INLINE_MIN_SEVERITY,
   VERIFY,
+  MIN_CONFIDENCE,
+  VERIFY_HIGH_STAKES_VOTES,
   buildMentions,
   SKIP_PATTERNS,
   RISK_KEYWORDS,
@@ -142,4 +165,8 @@ module.exports = {
   SEVERITY_ORDER,
   severityRank,
   severityAtLeast,
+  CONFIDENCE_ORDER,
+  confidenceRank,
+  confidenceAtLeast,
+  isHighStakes,
 };
