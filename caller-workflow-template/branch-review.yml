@@ -23,4 +23,5 @@ jobs:
       ref: ${{ github.ref_name }}   # the branch picked in "Use workflow from"
       base: ''                       # diff against the repo default branch
       model: ${{ inputs.model }}
+      # agent_ref: main              # ref of the agent repo to run; set to a branch to test changes
     secrets: inherit

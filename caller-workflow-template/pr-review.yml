@@ -22,4 +22,5 @@ jobs:
       pr_author: ${{ github.event.pull_request.user.login }}
       # notify_users: ''           # extra reviewers (comma-separated, @ optional)
       # model: 'claude-sonnet-4-6' # override the model per repo
+      # agent_ref: main            # ref of the agent repo to run; set to a branch to test changes
     secrets: inherit

@@ -21,4 +21,5 @@ jobs:
       # Extra users always mentioned in addition to the PR author (comma-separated,
       # @ optional). Leave empty to use the hardcoded defaults in the agent.
       notify_users: ''
+      # agent_ref: main   # ref of the agent repo to run; set to a branch to test changes
     secrets: inherit
