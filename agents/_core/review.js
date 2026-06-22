@@ -149,6 +149,7 @@ async function runReview(opts) {
         const verified = await verifyFindings({
           model, system: verifySystemPrompt, tool: verificationTool,
           buildUserPrompt: buildVerifyUserPrompt, payload: chunk, findings: reviewed.findings, verify: cfg.VERIFY,
+          highStakesVotes: cfg.VERIFY_HIGH_STAKES_VOTES,
         });
         addUsage(verified.usage);
         return verified.findings;
@@ -169,8 +170,20 @@ async function runReview(opts) {
       ? `\n\n> ⚠️ **Partial review:** ${failedChunks} of ${chunks.length} chunk(s) failed; some files may not have been reviewed.`
       : '';
 
-    const allFindings = mergeFindings(results.map((r) => r || []));
-    console.log(`Confirmed ${allFindings.length} finding(s).${failedChunks ? ` (${failedChunks} chunk(s) failed)` : ''}`);
+    const mergedFindings = mergeFindings(results.map((r) => r || []));
+
+    // Confidence gate (Step 4): suppress findings below MIN_CONFIDENCE from posting.
+    // Default MIN_CONFIDENCE=LOW keeps everything. Suppression is disclosed, never silent.
+    const allFindings = mergedFindings.filter((f) => cfg.confidenceAtLeast(f.confidence, cfg.MIN_CONFIDENCE));
+    const suppressed = mergedFindings.length - allFindings.length;
+    const confidenceNote = suppressed > 0
+      ? `\n\n> ℹ️ ${suppressed} lower-confidence finding(s) hidden (below \`MIN_CONFIDENCE=${cfg.MIN_CONFIDENCE}\`). Lower the threshold to show them.`
+      : '';
+    console.log(
+      `Confirmed ${allFindings.length} finding(s)` +
+      (suppressed ? `, ${suppressed} hidden by confidence gate` : '') +
+      `.${failedChunks ? ` (${failedChunks} chunk(s) failed)` : ''}`
+    );
 
     // Cost / usage line.
     const cost = cfg.estimateCost(model, usageTotal);
@@ -179,7 +192,7 @@ async function runReview(opts) {
     const costStr = cost != null ? ` · est. $${cost.toFixed(2)}` : '';
     const usageLine = `Reviewed with \`${model}\` · ${inK}k in / ${outK}k out${costStr}`;
     console.log(usageLine);
-    const footer = partialNote + `\n\n<sub>${usageLine}</sub>`;
+    const footer = partialNote + confidenceNote + `\n\n<sub>${usageLine}</sub>`;
 
     // 5. Emit through configured channels (read + comment only; no deletion).
     if (output.inlineComments) {
