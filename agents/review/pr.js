@@ -7,7 +7,7 @@ const { runReview } = require('../_core/review');
 const { resolveModel } = require('../_core/config');
 const {
   buildSystemPrompt,
-  buildUserPrompt,
+  makeBuildUserPrompt,
   buildVerifySystemPrompt,
   buildVerifyUserPrompt,
   FINDINGS_TOOL,
@@ -22,7 +22,7 @@ runReview({
   model: resolveModel('claude-sonnet-4-6'),
   marker: '<!-- code-review-agent -->',
   systemPrompt: buildSystemPrompt({ includeSecurity: false }),
-  buildUserPrompt,
+  buildUserPrompt: makeBuildUserPrompt({ includeSecurity: false }),
   findingsTool: FINDINGS_TOOL,
   verifySystemPrompt: buildVerifySystemPrompt(),
   buildVerifyUserPrompt,

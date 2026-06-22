@@ -1,5 +1,7 @@
 'use strict';
 
+const { securityLens } = require('../_core/language-lenses');
+
 // ── Review prompts ───────────────────────────────────────────────────────────
 
 function buildSystemPrompt() {
@@ -48,7 +50,7 @@ Rules:
 }
 
 function buildUserPrompt(diffPayload) {
-  return `Analyze the following pull request changes for security vulnerabilities, then call the report_findings tool with every finding.
+  return `Analyze the following pull request changes for security vulnerabilities, then call the report_findings tool with every finding.${securityLens(diffPayload)}
 
 ${diffPayload}`;
 }

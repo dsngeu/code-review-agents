@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: 'claude-sonnet-4-6'
+      agent_ref:
+        description: 'Ref (branch/tag/SHA) of the agent repo to run. Defaults to main; set to a branch to test changes.'
+        required: false
+        type: string
+        default: 'main'
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -50,7 +55,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: dsngeu/code-review-agents
-          ref: main
+          ref: ${{ inputs.agent_ref }}
           token: ${{ secrets.GH_PAT }}
 
       - name: Setup Node.js

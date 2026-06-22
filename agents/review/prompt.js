@@ -1,5 +1,7 @@
 'use strict';
 
+const { qualityLens, securityLens } = require('../_core/language-lenses');
+
 // General code-review lens (bugs, performance, design, maintainability), with an
 // optional security section. Structured output via tool-use + an adversarial
 // verifier, mirroring the security agent.
@@ -47,10 +49,15 @@ Rules:
 - Do not report the same issue twice.`;
 }
 
-function buildUserPrompt(diffPayload) {
-  return `Review the following pull request changes for code-quality issues, then call the report_findings tool with every finding.
+// Factory: returns a (payload) => string that injects the quality pitfalls lens,
+// plus the security pitfalls lens when this run includes security (Agent 2).
+function makeBuildUserPrompt({ includeSecurity } = {}) {
+  return function buildUserPrompt(diffPayload) {
+    const lens = qualityLens(diffPayload) + (includeSecurity ? securityLens(diffPayload) : '');
+    return `Review the following pull request changes for code-quality issues, then call the report_findings tool with every finding.${lens}
 
 ${diffPayload}`;
+  };
 }
 
 function buildVerifySystemPrompt() {
@@ -130,7 +137,7 @@ const VERIFICATION_TOOL = {
 
 module.exports = {
   buildSystemPrompt,
-  buildUserPrompt,
+  makeBuildUserPrompt,
   buildVerifySystemPrompt,
   buildVerifyUserPrompt,
   FINDINGS_TOOL,
