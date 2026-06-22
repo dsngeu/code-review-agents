@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const { MAX_FILE_CONTENT_BYTES, MAX_CONTEXT_FILES, SKIP_PATTERNS } = require('./config');
+const { resolveContextCandidates } = require('./context-resolvers');
 
 const path = require('node:path');
 
@@ -117,21 +118,34 @@ async function fetchFileContents(owner, repo, files, ref) {
   return contents;
 }
 
-// Pull in unchanged local files imported by changed files, for data-flow context.
+// Fetch the target repo's full list of file paths in one recursive git-trees call.
+// Returns a Set of blob paths, or null on any failure (fail-open → JS-only fallback).
+// NOTE: works reliably when `ref` is a commit SHA (PR mode HEAD_SHA, no slashes). For
+// slashed branch refs the trees endpoint may 404; we just return null and degrade.
+async function fetchRepoTree(owner, repo, ref) {
+  try {
+    const data = await githubRequest('GET', `/repos/${owner}/${repo}/git/trees/${encodePath(ref)}?recursive=1`);
+    if (!data || !Array.isArray(data.tree)) return null;
+    const paths = new Set(data.tree.filter((t) => t.type === 'blob').map((t) => t.path));
+    if (data.truncated) console.warn('⚠️  Repo tree truncated — cross-file context may be partial.');
+    return paths;
+  } catch (err) {
+    console.warn(`Repo tree fetch failed (${err.message}); cross-file context limited to JS/TS guesses.`);
+    return null;
+  }
+}
+
+// Pull in unchanged first-party files referenced by changed files, for data-flow context.
+// Language-aware (Step 2): JS/TS relative imports, Kotlin/Java package imports, Swift type
+// references — all resolved against the repo's real file list (`treePaths`).
 async function gatherContextFiles(owner, repo, fileContents, ref) {
   const already = new Set(fileContents.keys());
-  const wanted = new Set();
-  const importRe = /(?:import\s+(?:[^'"]+\s+from\s+)?|require\(\s*|export\s+[^'"]+\s+from\s+)['"]([^'"]+)['"]/g;
-  const exts = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '/index.ts', '/index.js'];
+  const treePaths = await fetchRepoTree(owner, repo, ref);
 
+  const wanted = new Set();
   for (const [file, content] of fileContents) {
-    const dir = path.posix.dirname(file);
-    let m;
-    while ((m = importRe.exec(content)) !== null) {
-      const spec = m[1];
-      if (!spec.startsWith('.')) continue;
-      const base = path.posix.normalize(path.posix.join(dir, spec));
-      for (const ext of exts) wanted.add(base + ext);
+    for (const candidate of resolveContextCandidates(file, content, treePaths)) {
+      wanted.add(candidate);
     }
   }
 
@@ -139,6 +153,8 @@ async function gatherContextFiles(owner, repo, fileContents, ref) {
   for (const candidate of wanted) {
     if (context.size >= MAX_CONTEXT_FILES) break;
     if (already.has(candidate) || shouldSkipFile(candidate)) continue;
+    // If we have the tree, only fetch paths that actually exist (avoids wasted 404s).
+    if (treePaths && !treePaths.has(candidate)) continue;
     try {
       const content = await fetchContent(owner, repo, candidate, ref);
       if (content != null) context.set(candidate, content);
@@ -277,6 +293,7 @@ module.exports = {
   fetchContent,
   fetchFileContents,
   gatherContextFiles,
+  fetchRepoTree,
   parseDiffValidLines,
   createCheckRun,
   updateCheckRun,
