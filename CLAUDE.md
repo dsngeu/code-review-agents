@@ -16,10 +16,12 @@ A **centralized, reusable code-review platform** for GitHub. The logic lives her
 
 ```
 agents/_core/        Shared engine (the brain):
-  config.js          env, model resolution, mentions, severity, SKIP_PATTERNS, risk heuristics
-  github.js          all GitHub I/O: diff/compare/files/contents, check runs, comments, Job Summary
+  config.js          env, model resolution, mentions, severity + confidence helpers, SKIP_PATTERNS, risk heuristics
+  github.js          all GitHub I/O: diff/compare/files/contents, repo tree, check runs, comments, Job Summary
   payload.js         risk ranking, MAX_FILES budget, diff filtering, chunking, concurrency
-  claude.js          callClaude() + verifyFindings() (tool-use structured output)
+  claude.js          callClaude() + verifyFindings() (tool-use; multi-vote verify for HIGH/CRITICAL)
+  context-resolvers.js  language-aware cross-file context (Swift type refs, Kotlin/Java imports, JS/TS imports)
+  language-lenses.js    per-language pitfall lenses (Swift/Kotlin/Node/TS), security + quality
   review.js          runReview(opts) — the orchestration shared by all agents
 agents/security/     Agent 1: index.js (thin entry) + prompt.js (security lens)
 agents/review/       Agents 2 & 3: prompt.js (general lens, includeSecurity flag) + pr.js + branch.js

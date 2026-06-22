@@ -80,7 +80,8 @@ flowchart LR
 
 In all cases the engine:
 - pulls the **full content of each changed file** (not just the diff lines) so the model has context,
-- pulls in **imported neighbour files** for extra data-flow context,
+- pulls in **unchanged dependency files the changed code references** for cross-file data-flow context — **language-aware**: Swift type references → `<Type>.swift`, Kotlin/Java `import a.b.C` → that file, JS/TS relative imports — all resolved against the repo's file tree (fetched once via the git-trees API),
+- applies **per-language pitfall lenses** (Swift/Kotlin/Node/TS) so the prompt targets each ecosystem's real failure modes,
 - and **skips dependency/build artifacts** automatically (next section).
 
 > **Agent 2 is the branch's *diff* vs base, not the entire branch codebase.** Files the branch didn't touch are not reviewed. Two caps apply: GitHub's compare API returns at most **300 changed files** (and omits the patch for very large files), and the engine's `MAX_FILES` budget (default 80) reviews the highest-risk files and discloses the rest.
@@ -220,7 +221,12 @@ flowchart LR
 | Change who gets @-mentioned | `notify_users: 'alice,bob'` in the caller (PR author is always mentioned) |
 | Limit huge PRs | env `MAX_FILES` (default 80) — top-risk files reviewed, rest disclosed |
 | Reduce inline noise | env `INLINE_MIN_SEVERITY=MEDIUM` |
+| Hide speculative findings | env `MIN_CONFIDENCE=MEDIUM` — low-confidence findings suppressed (disclosed) |
+| Harden HIGH/CRITICAL verdicts | env `VERIFY_HIGH_STAKES_VOTES=3` — majority-vote verify on high-severity findings |
 | Turn off the verifier (cheaper/faster) | env `VERIFY=false` |
+| Test agent changes before merging | caller `with:` `agent_ref: <branch>` (defaults to `main`) |
+
+> Today the `env` knobs above are read by the engine but not auto-forwarded from repo variables — override them in the `env:` block of the reusable workflow. `agent_ref`/`model`/`notify_users` are settable directly from the caller.
 
 Models available: `claude-opus-4-8`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`, `claude-fable-5`.
 

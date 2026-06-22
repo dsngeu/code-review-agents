@@ -37,10 +37,11 @@ A target repo's caller workflow invokes a reusable workflow here, which runs the
 - Fetches the PR diff (or `compare/base...head` for branch reviews) + full content of changed files
 - **Skips dependency/build artifacts on any stack** (node_modules, Pods, Gradle, DerivedData, target/, .venv, lockfiles, binaries…)
 - Risk-ranks files and applies a `MAX_FILES` budget (discloses what it skipped)
-- Pulls in imported unchanged files for data-flow context
+- Pulls in **unchanged dependency files referenced by the changed code** for cross-file data-flow context — language-aware: Swift type references, Kotlin/Java package imports, JS/TS imports (resolved against the repo's file tree)
+- Applies **per-language pitfall lenses** (Swift/Kotlin/Node/TS) so findings target each ecosystem's real failure modes
 - Chunks large diffs on file boundaries and reviews chunks **in parallel**
 - Returns **structured findings** via Claude tool-use (no brittle JSON parsing)
-- Runs an **adversarial verifier pass** that drops false positives
+- Runs an **adversarial verifier pass** that drops false positives (optional majority-vote for HIGH/CRITICAL), and a **confidence gate** before posting
 - Emits via the agent's channels (inline / summary comment / Job Summary / Check Run), **idempotently** (deletes its prior comments first)
 
 **Fail-open:** any error → an error comment / Job-Summary note + @-mention, Check Run `neutral`, never blocks the PR.
@@ -239,10 +240,15 @@ Set these as repo/org variables or in the caller workflow's `env:` if you need t
 | `model` | caller `with:` input | per agent | Claude model id. All agents default to `claude-sonnet-4-6`. |
 | `ENABLE_PR_REVIEW` | repo **variable** | unset | Set to `true` to enable Agent 3 (auto PR review) in a repo. |
 | `notify_users` | caller `with:` input | — | Extra comma-separated reviewers to @-mention (in addition to the PR author). |
+| `agent_ref` | caller `with:` input | `main` | Ref (branch/tag/SHA) of **this** agent repo to run. Set to a branch to test agent changes before merging; defaults to `main`. |
 | `MAX_FILES` | env | `80` | Max changed files deeply analyzed; the rest are risk-ranked out and disclosed as skipped. |
 | `CHUNK_CONCURRENCY` | env | `4` | Chunks sent to Claude in parallel. |
 | `INLINE_MIN_SEVERITY` | env | `LOW` | Minimum severity for an **inline** comment (everything still appears in the summary). |
 | `VERIFY` | env | `true` | Adversarial pass that drops false positives. `false` = faster/cheaper/noisier. |
+| `MIN_CONFIDENCE` | env | `LOW` | Minimum confidence for a finding to be **posted**. Default `LOW` posts everything; raise to `MEDIUM`/`HIGH` to suppress speculative findings (suppression is disclosed, never silent). |
+| `VERIFY_HIGH_STAKES_VOTES` | env | `1` | Independent verifier passes for **HIGH/CRITICAL** findings; dropped only on a **majority** refute. `1` = single pass (default). Raise (e.g. `3`) for more reliable verdicts on high-severity findings. |
+
+> **Note on the `env` knobs:** the engine reads these from `process.env`, but the reusable workflows do **not** yet forward arbitrary repo/org variables into the run step — so today, overriding an `env` knob means adding it to the `env:` block of the relevant reusable workflow (`.github/workflows/*.yml`). `agent_ref`, `model`, `notify_users`, and `ENABLE_PR_REVIEW` are wired through and settable from the caller as shown.
 
 ### Code constants (`agents/_core/config.js`)
 
