@@ -10,10 +10,11 @@ const client = new Anthropic({
 
 // Run one review call with forced structured (tool-use) output.
 // `tool` is a JSON-schema tool whose input has a `findings` array.
-async function callClaude({ model, system, tool, content }) {
+async function callClaude({ model, system, tool, content, temperature }) {
   const response = await client.messages.create({
     model,
     max_tokens: MAX_TOKENS,
+    ...(temperature !== undefined ? { temperature } : {}),
     system,
     tools: [tool],
     tool_choice: { type: 'tool', name: tool.name },
@@ -32,14 +33,20 @@ async function callClaude({ model, system, tool, content }) {
 }
 
 // One verifier pass → Set of finding indices voted "false_positive" (+ usage).
-async function runVerifyPass({ model, system, tool, content }) {
+// When `cache` is set, the (identical) system prompt + diff payload are marked with
+// cache_control so repeated multi-vote passes read them at ~0.1x instead of full price.
+async function runVerifyPass({ model, system, tool, content, temperature, cache }) {
   const response = await client.messages.create({
     model,
     max_tokens: MAX_TOKENS,
-    system,
+    ...(temperature !== undefined ? { temperature } : {}),
+    system: cache ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : system,
     tools: [tool],
     tool_choice: { type: 'tool', name: tool.name },
-    messages: [{ role: 'user', content }],
+    messages: [{
+      role: 'user',
+      content: cache ? [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }] : content,
+    }],
   });
   const usage = response.usage || null;
   const toolUse = response.content.find((b) => b.type === 'tool_use' && b.name === tool.name);
@@ -56,7 +63,7 @@ async function runVerifyPass({ model, system, tool, content }) {
 // `highStakesVotes` independent passes and are dropped only if a MAJORITY refute —
 // a more reliable verdict on the findings that matter most. Default votes=1 → single
 // pass for everything (identical cost/behaviour to before).
-async function verifyFindings({ model, system, tool, buildUserPrompt, payload, findings, verify, highStakesVotes = 1 }) {
+async function verifyFindings({ model, system, tool, buildUserPrompt, payload, findings, verify, highStakesVotes = 1, temperature }) {
   if (!verify || findings.length === 0) return { findings, usage: null };
   const usageTotal = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   const addUsage = (u) => {
@@ -70,6 +77,10 @@ async function verifyFindings({ model, system, tool, buildUserPrompt, payload, f
   const hasHighStakes = findings.some(isHighStakes);
   const totalPasses = hasHighStakes ? Math.max(1, highStakesVotes) : 1;
   const content = buildUserPrompt(payload, findings);
+  // Only worth caching when the same payload is sent more than once (multi-vote):
+  // pass 1 writes the cache (~1.25x), passes 2..N read it (~0.1x). A single pass
+  // would only pay the write with no read, so leave it uncached.
+  const cache = totalPasses > 1;
 
   try {
     // Per-index tally across all passes (for high-stakes majority) + the first
@@ -78,7 +89,7 @@ async function verifyFindings({ model, system, tool, buildUserPrompt, payload, f
     let firstRefuted = null;
     let completedPasses = 0;
     for (let p = 0; p < totalPasses; p++) {
-      const { refuted, usage, ok } = await runVerifyPass({ model, system, tool, content });
+      const { refuted, usage, ok } = await runVerifyPass({ model, system, tool, content, temperature, cache });
       addUsage(usage);
       if (!ok) continue; // malformed verdict → ignore this pass (fail-open)
       completedPasses++;

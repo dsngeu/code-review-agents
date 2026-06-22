@@ -246,7 +246,9 @@ Set these as repo/org variables or in the caller workflow's `env:` if you need t
 | `INLINE_MIN_SEVERITY` | env | `LOW` | Minimum severity for an **inline** comment (everything still appears in the summary). |
 | `VERIFY` | env | `true` | Adversarial pass that drops false positives. `false` = faster/cheaper/noisier. |
 | `MIN_CONFIDENCE` | env | `LOW` | Minimum confidence for a finding to be **posted**. Default `LOW` posts everything; raise to `MEDIUM`/`HIGH` to suppress speculative findings (suppression is disclosed, never silent). |
-| `VERIFY_HIGH_STAKES_VOTES` | env | `1` | Independent verifier passes for **HIGH/CRITICAL** findings; dropped only on a **majority** refute. `1` = single pass (default). Raise (e.g. `3`) for more reliable verdicts on high-severity findings. |
+| `VERIFY_HIGH_STAKES_VOTES` | env | `1` | Independent verifier passes for **HIGH/CRITICAL** findings; dropped only on a **majority** refute. `1` = single pass (default). Raise (e.g. `3`) for more reliable verdicts on high-severity findings. Multi-vote passes reuse a **prompt cache** so passes 2…N bill input at ~0.1×. |
+| `REVIEW_TEMPERATURE` | env | model default | Temperature for the review pass. Unset = model default. Lower (e.g. `0.2`) → more reproducible reviews. |
+| `VERIFY_TEMPERATURE` | env | model default | Temperature for verifier passes. Keep **> 0** so multi-vote passes stay independent. |
 
 > **Note on the `env` knobs:** the engine reads these from `process.env`, but the reusable workflows do **not** yet forward arbitrary repo/org variables into the run step — so today, overriding an `env` knob means adding it to the `env:` block of the relevant reusable workflow (`.github/workflows/*.yml`). `agent_ref`, `model`, `notify_users`, and `ENABLE_PR_REVIEW` are wired through and settable from the caller as shown.
 

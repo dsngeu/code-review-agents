@@ -144,12 +144,12 @@ async function runReview(opts) {
     const results = await pl.mapWithConcurrency(chunks, cfg.CHUNK_CONCURRENCY, async (chunk, i) => {
       console.log(`Processing chunk ${i + 1}/${chunks.length}`);
       try {
-        const reviewed = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunk) });
+        const reviewed = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunk), temperature: cfg.REVIEW_TEMPERATURE });
         addUsage(reviewed.usage);
         const verified = await verifyFindings({
           model, system: verifySystemPrompt, tool: verificationTool,
           buildUserPrompt: buildVerifyUserPrompt, payload: chunk, findings: reviewed.findings, verify: cfg.VERIFY,
-          highStakesVotes: cfg.VERIFY_HIGH_STAKES_VOTES,
+          highStakesVotes: cfg.VERIFY_HIGH_STAKES_VOTES, temperature: cfg.VERIFY_TEMPERATURE,
         });
         addUsage(verified.usage);
         return verified.findings;
@@ -228,13 +228,26 @@ async function runReview(opts) {
 // ── Emit helpers ──────────────────────────────────────────────────────────────
 
 async function postInline(owner, repo, prNum, sha, findings, validLines, marker) {
+  // Idempotency WITHOUT deletion: collect {path:line} we've already commented on
+  // under THIS agent's marker, so re-runs (every PR push) don't duplicate inline
+  // comments. Keyed per-marker so different agents don't dedup against each other.
+  const existing = await gh.fetchReviewComments(owner, repo, prNum);
+  const alreadyPosted = new Set(
+    existing
+      .filter((c) => c.body && c.body.includes(marker))
+      .map((c) => `${c.path}:${c.line ?? c.original_line}`)
+  );
+
   const inlineable = findings
     .filter((f) => f.file && f.line != null)
     .filter((f) => cfg.severityAtLeast(f.severity, cfg.INLINE_MIN_SEVERITY))
     .filter((f) => validLines.get(f.file)?.has(f.line))
+    .filter((f) => !alreadyPosted.has(`${f.file}:${f.line}`))
     .slice(0, cfg.MAX_INLINE_COMMENTS);
   if (inlineable.length === 0) {
-    console.log('No inline-eligible findings.');
+    console.log(alreadyPosted.size > 0
+      ? 'No new inline-eligible findings (existing inline comments left in place).'
+      : 'No inline-eligible findings.');
     return;
   }
   const comments = inlineable.map((f) => ({

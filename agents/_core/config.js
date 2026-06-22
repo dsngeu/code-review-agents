@@ -62,6 +62,13 @@ const MIN_CONFIDENCE = (process.env.MIN_CONFIDENCE || 'LOW').toUpperCase();
 // if a MAJORITY of votes refute it. Default 1 = today's single pass (no extra cost).
 const VERIFY_HIGH_STAKES_VOTES = Math.max(1, parseInt(process.env.VERIFY_HIGH_STAKES_VOTES || '1', 10));
 
+// Optional temperatures (unset = use the model default, = current behavior).
+// Lower REVIEW_TEMPERATURE → more reproducible reviews. VERIFY_TEMPERATURE should
+// stay > 0 so multi-vote verification passes stay genuinely independent.
+const parseTemp = (v) => (v === undefined || v === '' ? undefined : parseFloat(v));
+const REVIEW_TEMPERATURE = parseTemp(process.env.REVIEW_TEMPERATURE);
+const VERIFY_TEMPERATURE = parseTemp(process.env.VERIFY_TEMPERATURE);
+
 // Hardcoded fallback reviewers when NOTIFY_USERS is not supplied.
 // ⚠️ Replace with your actual reviewer usernames.
 const ALWAYS_NOTIFY = ['dsngeu'];
@@ -158,6 +165,8 @@ module.exports = {
   VERIFY,
   MIN_CONFIDENCE,
   VERIFY_HIGH_STAKES_VOTES,
+  REVIEW_TEMPERATURE,
+  VERIFY_TEMPERATURE,
   buildMentions,
   SKIP_PATTERNS,
   RISK_KEYWORDS,

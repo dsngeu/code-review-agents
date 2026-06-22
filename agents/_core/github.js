@@ -253,6 +253,25 @@ async function postIssueComment(owner, repo, prNum, body) {
   await githubRequest('POST', `/repos/${owner}/${repo}/issues/${prNum}/comments`, { body });
 }
 
+// All existing inline (review) comments on a PR, paginated. Used to make inline
+// posting idempotent WITHOUT deletion: we skip a finding whose {path,line} we've
+// already commented on under this agent's marker. Fail-open → [] on error.
+async function fetchReviewComments(owner, repo, prNum) {
+  const comments = [];
+  try {
+    let page = 1;
+    while (true) {
+      const batch = await githubRequest('GET', `/repos/${owner}/${repo}/pulls/${prNum}/comments?per_page=100&page=${page}`);
+      comments.push(...batch);
+      if (batch.length < 100) break;
+      page++;
+    }
+  } catch {
+    return []; // listing failed — proceed without dedup rather than lose findings
+  }
+  return comments;
+}
+
 async function postReview(owner, repo, prNum, sha, comments) {
   await githubRequest('POST', `/repos/${owner}/${repo}/pulls/${prNum}/reviews`, {
     commit_id: sha,
@@ -298,6 +317,7 @@ module.exports = {
   createCheckRun,
   updateCheckRun,
   upsertIssueComment,
+  fetchReviewComments,
   postIssueComment,
   postReview,
   postSingleReviewComment,
