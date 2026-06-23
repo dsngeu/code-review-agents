@@ -41,6 +41,15 @@ on:
       GH_PAT:
         required: true
 
+# Cost saver: when a newer push to the same PR triggers another security review,
+# cancel the in-progress (now-stale) one instead of paying for it to finish — its
+# comment would be overwritten by the newer run anyway. Keyed per repo + PR, and
+# prefixed `security-` so it never cancels the separate Code Review workflow.
+# No quality impact: only superseded commits' reviews are cancelled.
+concurrency:
+  group: security-review-${{ inputs.repo }}-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
 jobs:
   security-review:
     runs-on: ubuntu-latest
