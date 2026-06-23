@@ -242,13 +242,15 @@ async function updateCheckRun(owner, repo, checkRunId, name, conclusion, summary
 // We never delete comments. Re-runs UPDATE the agent's existing summary comment
 // in place (found by its hidden marker); only the first run creates one.
 
-async function findIssueCommentByMarker(owner, repo, prNum, marker) {
+// Find the agent's existing summary comment by marker → { id, body } or null.
+// Returns the body too so callers can recover embedded state (the review ledger).
+async function getIssueComment(owner, repo, prNum, marker) {
   try {
     let page = 1;
     while (true) {
       const batch = await githubRequest('GET', `/repos/${owner}/${repo}/issues/${prNum}/comments?per_page=100&page=${page}`);
       const hit = batch.find((c) => c.body && c.body.includes(marker));
-      if (hit) return hit.id;
+      if (hit) return { id: hit.id, body: hit.body };
       if (batch.length < 100) break;
       page++;
     }
@@ -258,9 +260,16 @@ async function findIssueCommentByMarker(owner, repo, prNum, marker) {
   return null;
 }
 
-// Create or update the agent's summary comment in place (no deletion).
-async function upsertIssueComment(owner, repo, prNum, marker, body) {
-  const existingId = await findIssueCommentByMarker(owner, repo, prNum, marker);
+async function findIssueCommentByMarker(owner, repo, prNum, marker) {
+  const c = await getIssueComment(owner, repo, prNum, marker);
+  return c ? c.id : null;
+}
+
+// Create or update the agent's summary comment in place (no deletion). When the
+// caller already located the comment (e.g. to read its prior ledger), it can pass
+// `knownId` to skip the extra lookup.
+async function upsertIssueComment(owner, repo, prNum, marker, body, knownId) {
+  const existingId = knownId !== undefined ? knownId : await findIssueCommentByMarker(owner, repo, prNum, marker);
   if (existingId) {
     await githubRequest('PATCH', `/repos/${owner}/${repo}/issues/comments/${existingId}`, { body });
   } else {
@@ -336,6 +345,7 @@ module.exports = {
   parseDiffValidLines,
   createCheckRun,
   updateCheckRun,
+  getIssueComment,
   upsertIssueComment,
   fetchReviewComments,
   postIssueComment,

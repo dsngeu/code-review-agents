@@ -4,6 +4,7 @@ const cfg = require('./config');
 const gh = require('./github');
 const pl = require('./payload');
 const { callClaude, verifyFindings } = require('./claude');
+const ledger = require('./ledger');
 
 // ── Findings helpers ──────────────────────────────────────────────────────────
 
@@ -217,12 +218,25 @@ async function runReview(opts) {
     console.log(usageLine);
     const footer = partialNote + confidenceNote + `\n\n<sub>${usageLine}</sub>`;
 
+    // Metadata for this review, recorded in the per-PR ledger (history + cumulative
+    // cost + resolved-since-last-review). `new Date()` is fine here — this runs in
+    // the real Actions Node process, not a Workflow-tool script.
+    const reviewMeta = {
+      time: new Date().toISOString().replace('T', ' ').slice(0, 16),
+      sha: HEAD_SHA || '',
+      model,
+      inK: +inK,
+      outK: +outK,
+      cost: cost != null ? +cost.toFixed(4) : null,
+      count: allFindings.length,
+    };
+
     // 5. Emit through configured channels (read + comment only; no deletion).
     if (output.inlineComments) {
       await postInline(OWNER, REPO, PR_NUM, HEAD_SHA, allFindings, validLines, marker);
     }
     if (output.summaryComment) {
-      await postSummary(OWNER, REPO, PR_NUM, allFindings, skipped, mentions, marker, agentName, footer);
+      await postSummary(OWNER, REPO, PR_NUM, allFindings, skipped, mentions, marker, agentName, footer, reviewMeta);
     }
     if (output.jobSummary) {
       gh.writeJobSummary(buildJobSummary(agentName, allFindings, skipped, mentions, resolvedBase, process.env.REF, footer));
@@ -290,7 +304,11 @@ async function postInline(owner, repo, prNum, sha, findings, validLines, marker)
   }
 }
 
-async function postSummary(owner, repo, prNum, findings, skipped, mentions, marker, agentName, footer = '') {
+async function postSummary(owner, repo, prNum, findings, skipped, mentions, marker, agentName, footer = '', reviewMeta = null) {
+  // Read the existing comment first so we can recover its prior ledger (history +
+  // resolved findings) before overwriting in place. One fetch, reused for the upsert.
+  const existing = reviewMeta ? await gh.getIssueComment(owner, repo, prNum, marker) : null;
+
   const hasCriticalOrHigh = findings.some((f) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
   let body;
   if (findings.length === 0) {
@@ -300,7 +318,8 @@ async function postSummary(owner, repo, prNum, findings, skipped, mentions, mark
     if (hasCriticalOrHigh && mentions) body += `\n\n${mentions} — HIGH/CRITICAL findings require attention.`;
   }
   body += skippedNote(skipped) + footer;
-  await gh.upsertIssueComment(owner, repo, prNum, marker, body);
+  if (reviewMeta) body += ledger.buildLedgerBlock(existing ? existing.body : null, findings, reviewMeta);
+  await gh.upsertIssueComment(owner, repo, prNum, marker, body, existing ? existing.id : undefined);
 }
 
 function buildJobSummary(agentName, findings, skipped, mentions, base, ref, footer = '') {
