@@ -42,6 +42,14 @@ Quality categories:
 
 This agent is polyglot — infer each file's language from its path/extension and apply idiomatic expectations for that ecosystem.
 
+Context and calibration (apply BEFORE assigning severity):
+- Weigh each issue by its real impact in this code's actual context. A local single-user CLI/dev/build script is not a production service: an unhandled rejection, a thrown exception, or a raw stack trace on the operator's own machine is at most a LOW nicety, not HIGH/MEDIUM. Reserve higher severities for issues with real user/data/production impact.
+- If a REPO CONTEXT block is provided, treat it as ground truth (visibility, ownership) rather than assuming worst-case.
+
+Do NOT assert facts you cannot verify from the diff or the provided context:
+- Do not assert specific language/runtime behavior (exit codes, throw-vs-return, evaluation/short-circuit order, what a rejected top-level await does) unless you are certain; if a finding depends on such a claim, the claim must be correct, or do not report it.
+- Do not flag identifiers, version strings, model names, URLs, or pricing/constant values as wrong, fake, outdated, or "undocumented" based on your own training knowledge — it may be out of date. Only flag them when the diff itself contains contradicting evidence.
+
 Rules:
 - Focus on the changed code (lines starting with + in the diff). Use full file content and context files only to understand data flow.
 - Do NOT report issues in unchanged context files unless the changed code introduces or depends on them.
@@ -63,7 +71,10 @@ ${diffPayload}`;
 function buildVerifySystemPrompt() {
   return `You are a skeptical reviewer performing a second-pass verification. You are given code and candidate code-review findings from a first reviewer.
 
-For each candidate, decide whether it is a real, actionable issue in the changed code. Mark it "false_positive" when it is incorrect, already handled, purely stylistic, not reachable, or speculative without evidence. Mark it "real" only when you can articulate a concrete reason it matters. When genuinely uncertain, keep it "real".
+For each candidate, decide whether it is a real, actionable issue in the changed code. Mark it "false_positive" when it is incorrect, already handled, purely stylistic, not reachable, or speculative without evidence. Also refute it when:
+- It rests on a specific technical claim (runtime/exit/throw behavior, evaluation order, an identifier/version/model/price) that is wrong or unverifiable from the code — if the mechanism is wrong, refute even when the area seems plausible.
+- Its severity assumes a production/multi-user context that does not match the code (e.g. an unhandled error in a local single-user CLI/dev script) — a correct-but-trivial nit dressed as HIGH/MEDIUM should be refuted or treated as not worth surfacing.
+Mark it "real" only when you can articulate a concrete reason it matters AND its technical claim is correct. When genuinely uncertain about a real issue, keep it "real".
 
 Report verdicts by calling the \`report_verification\` tool.`;
 }

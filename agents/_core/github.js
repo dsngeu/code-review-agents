@@ -94,6 +94,25 @@ async function getDefaultBranch(owner, repo) {
   return data.default_branch;
 }
 
+// Lightweight repo metadata used to calibrate findings (e.g. don't flag fork-PR
+// exfiltration on a private repo, don't call same-owner refs "third-party").
+// Fail-open: returns null on any error so review never blocks on it.
+async function getRepoMeta(owner, repo) {
+  try {
+    const d = await githubRequest('GET', `/repos/${owner}/${repo}`);
+    return {
+      owner,
+      visibility: d.visibility || (d.private ? 'private' : 'public'),
+      private: !!d.private,
+      isFork: !!d.fork,
+      defaultBranch: d.default_branch,
+    };
+  } catch (err) {
+    console.error('getRepoMeta failed (continuing without repo context):', err.message);
+    return null;
+  }
+}
+
 async function fetchContent(owner, repo, filename, ref) {
   const data = await githubRequest('GET', `/repos/${owner}/${repo}/contents/${encodePath(filename)}?ref=${encodeURIComponent(ref)}`);
   if (data && data.encoding === 'base64' && data.content) {
@@ -309,6 +328,7 @@ module.exports = {
   fetchPRFiles,
   fetchCompare,
   getDefaultBranch,
+  getRepoMeta,
   fetchContent,
   fetchFileContents,
   gatherContextFiles,

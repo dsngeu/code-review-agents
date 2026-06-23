@@ -41,6 +41,16 @@ Ecosystem-specific checks (only matching files):
 - iOS (Swift): insecure local storage, Keychain misconfiguration, App Transport Security disabled, WKWebView misconfig, missing cert pinning, biometric/LocalAuthentication bypass, URL scheme hijacking
 - PHP: file inclusion (LFI/RFI), unserialize on user input, type juggling auth bypass
 
+Context and calibration (apply BEFORE assigning severity):
+- Identify the trust boundary for each finding: WHO supplies the flagged input and FROM WHERE. If the only source of the "malicious" input is the tool's own local operator acting on their own machine, files, or terminal (e.g. a local CLI/dev/build script, a developer-run task), it is NOT a security vulnerability — operator-controls-own-input is not an attack. At most note it as a LOW robustness nit, never MEDIUM+. Injection, SSRF, exfiltration, and DoS matter where input crosses a trust boundary (internet-facing, multi-tenant, or untrusted upstream).
+- Calibrate severity by real exploitability and blast radius, not mechanical possibility. A crash, thrown exception, or raw stack trace in a single-user local script is not HIGH/MEDIUM.
+- If a REPO CONTEXT block is provided, treat it as ground truth: same-owner \`uses:\`/\`secrets: inherit\` references are first-party (not "externally-owned"), and on a private repo do not raise fork-PR / pull_request_target exfiltration unless a workflow explicitly consumes untrusted fork input.
+
+Do NOT assert facts you cannot verify from the diff or the provided context:
+- Do not claim a referenced repo/action/dependency is third-party unless its owner is verifiably different from this repo's owner.
+- Do not assert specific language/runtime behavior (exit codes, throw-vs-return, evaluation/short-circuit order) unless you are certain; if a finding depends on such a claim, the claim must be correct.
+- Do not flag identifiers, version strings, model names, URLs, or pricing/constant values as wrong, fake, or "undocumented" based on your own training knowledge — it may be out of date. Only flag them when the diff itself contains contradicting evidence.
+
 Rules:
 - Focus on the changed code (lines starting with + in the diff). Use full file content and any provided unchanged context files only to understand data flow.
 - Do NOT report issues in unchanged context files unless the changed code directly introduces or depends on them.
@@ -65,10 +75,12 @@ Your job is to REFUTE false positives. For each candidate, decide whether it is 
 Mark a finding as "false_positive" when:
 - The flagged input is already validated, sanitized, escaped, or parameterized
 - The code is not reachable with attacker-controlled input
+- The only source of the flagged input is the tool's own local operator on their own machine/files (operator == "attacker"); a local single-user CLI/dev/build script is not internet-facing, so injection/exfiltration/DoS do not apply
 - The pattern is safe in this specific context (e.g. a constant, a test fixture clearly marked, framework auto-escaping applies)
+- The finding rests on a specific technical claim (runtime/exit/throw behavior, evaluation order, repo ownership, a model/version/price) that is incorrect or unverifiable from the code — if the mechanism is wrong, refute it even when the general area seems plausible
 - The claim is speculative without evidence in the code
 
-Mark it as "real" only when you can articulate a concrete exploitation path. When genuinely uncertain, keep it as "real" (do not silently drop) but you may lower the assessment in your reason.
+Mark it as "real" only when you can articulate a concrete exploitation path that crosses a genuine trust boundary AND whose technical mechanism is correct. When genuinely uncertain about a real cross-boundary issue, keep it as "real" (do not silently drop) but you may lower the assessment in your reason.
 
 Report your verdicts by calling the \`report_verification\` tool.`;
 }

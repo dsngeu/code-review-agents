@@ -44,6 +44,24 @@ function findingsTable(findings) {
   return [header, ...rows].join('\n');
 }
 
+// A short, factual repo-context header prepended to every chunk so findings are
+// calibrated against ground truth (visibility, ownership) instead of worst-case
+// guesses. Returns '' when metadata is unavailable — say nothing rather than assert.
+function buildRepoContextHeader(meta, repo) {
+  if (!meta) return '';
+  const lines = [
+    '=== REPO CONTEXT (ground truth for calibration — NOT code under review) ===',
+    `Repository: ${meta.owner}/${repo}`,
+    `Owner: ${meta.owner}`,
+    `Visibility: ${meta.visibility}`,
+    `- References to ${meta.owner}/* (uses:, secrets: inherit, etc.) are FIRST-PARTY (same owner) — do NOT call them third-party / "externally-owned".`,
+  ];
+  if (meta.private) {
+    lines.push('- This repository is PRIVATE. Fork-PR / pull_request_target exfiltration concerns do NOT apply unless a workflow explicitly runs untrusted fork input.');
+  }
+  return lines.join('\n') + '\n\n';
+}
+
 function skippedNote(skipped) {
   if (!skipped || skipped.length === 0) return '';
   const names = skipped.slice(0, 20).map((f) => `\`${f.filename}\``).join(', ');
@@ -127,6 +145,10 @@ async function runReview(opts) {
     // 4. Chunk + parallel review/verify.
     const payload = pl.buildDiffPayload(scopedDiff, fileContents, contextFiles);
     const chunks = pl.chunkPayload(payload);
+
+    // Repo-context header (visibility/ownership) prepended to each chunk so the
+    // reviewer and verifier calibrate against ground truth. Fail-open: '' if unknown.
+    const repoHeader = buildRepoContextHeader(await gh.getRepoMeta(OWNER, REPO), REPO);
     console.log(`Sending ${chunks.length} chunk(s), ${cfg.CHUNK_CONCURRENCY} at a time (verify=${cfg.VERIFY}).`);
 
     // Accumulate token usage across every Claude call (review + verify, all chunks).
@@ -144,11 +166,12 @@ async function runReview(opts) {
     const results = await pl.mapWithConcurrency(chunks, cfg.CHUNK_CONCURRENCY, async (chunk, i) => {
       console.log(`Processing chunk ${i + 1}/${chunks.length}`);
       try {
-        const reviewed = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunk), temperature: cfg.REVIEW_TEMPERATURE });
+        const chunkWithCtx = repoHeader + chunk;
+        const reviewed = await callClaude({ model, system: systemPrompt, tool: findingsTool, content: buildUserPrompt(chunkWithCtx), temperature: cfg.REVIEW_TEMPERATURE });
         addUsage(reviewed.usage);
         const verified = await verifyFindings({
           model, system: verifySystemPrompt, tool: verificationTool,
-          buildUserPrompt: buildVerifyUserPrompt, payload: chunk, findings: reviewed.findings, verify: cfg.VERIFY,
+          buildUserPrompt: buildVerifyUserPrompt, payload: chunkWithCtx, findings: reviewed.findings, verify: cfg.VERIFY,
           highStakesVotes: cfg.VERIFY_HIGH_STAKES_VOTES, temperature: cfg.VERIFY_TEMPERATURE,
         });
         addUsage(verified.usage);
